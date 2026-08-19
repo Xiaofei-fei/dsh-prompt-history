@@ -87,6 +87,7 @@
   },
   "scripts": {
     "build": "rm -rf lib && tsc -p tsconfig.build.json && tsdown",
+    "prepare": "pnpm build",
     "typecheck": "tsc --noEmit",
     "bundle": "tsdown",
     "watch": "tsdown --watch"
