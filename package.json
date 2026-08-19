@@ -2,6 +2,16 @@
   "name": "dsh-prompt-history",
   "version": "0.1.0",
   "description": "DSH web plugin: bash-like prompt history in the composer — Up/Down arrows recall previously submitted messages, sourced from the session's own message log (zero config, zero extra storage).",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "plugin",
+    "history",
+    "composer",
+    "input",
+    "prompt"
+  ],
   "type": "module",
   "repository": {
     "type": "git",
