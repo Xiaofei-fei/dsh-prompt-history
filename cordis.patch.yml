@@ -1,0 +1,8 @@
+# dsh-prompt-history bundle patch — bash-like prompt history for the composer.
+#
+# Mounts the browser half by inserting one row into the dsh.client roster; the
+# loader imports the package root (empty node half) and the modules node half
+# serves exports["./client"] to the browser.
+- insert:
+    - id: dsh-prompt-history
+      name: dsh-prompt-history
