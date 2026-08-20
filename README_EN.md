@@ -1,6 +1,6 @@
 # dsh-prompt-history
 
-Bash-like prompt history for the DSH web composer: **Up / Down** arrows recall previously submitted messages in the input box.
+Bash-like prompt history and a right-click menu for the DSH web composer: **Up / Down** arrows recall previously submitted messages; **right-click** in the input box opens a paste / copy / cut menu.
 
 ## Install
 
@@ -15,6 +15,7 @@ Then refresh the page.
 - **Up**: recall the previous submitted prompt (newest first), replacing the current draft; keep pressing Up to walk further back.
 - **Down**: walk forward; at the bottom edge, restore the line you were typing before browsing began (readline pending-line behavior).
 - **Edit exits browsing**: editing the draft while browsing drops back to the live line.
+- **Right-click**: opens a paste / copy / cut menu on the composer textarea. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically); copy/cut reuse the composer's own handlers too.
 - **Does not interfere**: while the `/` or `@` suggestion menu is open, arrow keys stay with menu navigation; IME composition, `Shift+Up` selection, `Ctrl+Up` word-jumps and other modifier chords are never intercepted; busy/removed sessions do not respond.
 
 ## Features
