@@ -1,8 +1,7 @@
 /**
- * InputHistory: bash-like prompt history + right-click menu for the composer
- * (dsh-prompt-history). Renders nothing visible except the transient
- * right-click menu (portaled to document.body) — it mounts capture-phase
- * listeners on the document while the session's composer card is live.
+ * InputHistory: bash-like prompt history + right-click paste for the composer
+ * (dsh-prompt-history). Renders nothing — it mounts capture-phase listeners on
+ * the document while the session's composer card is live.
  *
  * Prompt history: Up recalls previously submitted prompts (newest first), Down
  * walks forward and restores the line that was being typed before browsing
@@ -11,13 +10,11 @@
  * (role=listbox inside the composer card) is open, the history listener
  * declines and the input trigger pipeline owns the keys.
  *
- * Right-click menu: a context menu (粘贴 / 复制 / 剪切) replaces the native
- * menu on the composer textarea. Paste runs the SAME pipeline as Ctrl+V
- * (execCommand('paste') fires the composer's own paste handler, so images and
- * reference chips behave identically), with a navigator.clipboard fallback;
- * copy/cut likewise prefer the composer's own handlers with a clipboard API
- * fallback. Focus never leaves the textarea (menu mousedowns are suppressed),
- * so the caret and selection survive the interaction.
+ * Right-click paste (terminal-style, like Linux): a right-click on the composer
+ * textarea pastes the clipboard directly — no context menu. Paste runs the
+ * SAME pipeline as Ctrl+V (execCommand('paste') fires the composer's own paste
+ * handler, so images and reference chips behave identically), with a
+ * navigator.clipboard fallback that splices text at the caret.
  *
  * History is fed from the conversation snapshot's user nodes (kind 'user' and
  * 'steering'), appended as they land — so everything submitted while the page
@@ -31,8 +28,7 @@
  * (Shift+Up still extends selection), no IME composition, machine not
  * adjudicating/submitting, session not removed.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useRef } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ui-conversation SlotMap merge (the input.right entry) and the
 // session standard kit members (useInput/inputActions).
@@ -54,13 +50,6 @@ interface BrowseState {
   readonly lastSet: string | null
 }
 
-/** One open context menu: position plus the textarea it was opened from. */
-interface MenuState {
-  readonly x: number
-  readonly y: number
-  readonly target: HTMLTextAreaElement
-}
-
 /** Not-browsing state; also the reset target after edits and session switches. */
 const RESET_BROWSE: BrowseState = { index: -1, saved: '', lastSet: null }
 
@@ -68,10 +57,6 @@ const RESET_BROWSE: BrowseState = { index: -1, saved: '', lastSet: null }
 const COMPOSER_CARD = '[data-composer-card]'
 /** The suggestion menu (slash/at) renders a listbox inside the card while open. */
 const OPEN_MENU = '[role="listbox"]'
-
-/** Rough menu footprint for viewport clamping before the first paint. */
-const MENU_WIDTH = 148
-const MENU_HEIGHT = 124
 
 /** Extract the trimmed plain text of one user-submitted message node; null when empty. */
 function promptText(node: ConversationNode): string | null {
@@ -84,25 +69,10 @@ function promptText(node: ConversationNode): string | null {
   return trimmed === '' ? null : trimmed
 }
 
-/** Insert `text` at the textarea's selection via the machine's setDraft; restore the caret. */
-function insertAtSelection(
-  target: HTMLTextAreaElement,
-  text: string,
-  draft: string,
-  setDraft: (text: string) => void,
-): void {
-  const start = target.selectionStart ?? 0
-  const end = target.selectionEnd ?? start
-  const next = draft.slice(0, start) + text + draft.slice(end)
-  setDraft(next)
-  const caret = start + text.length
-  requestAnimationFrame(() => { target.setSelectionRange(caret, caret) })
-}
-
 /**
- * The composer history + context-menu entry.
+ * The composer history + right-click-paste entry.
  * @param props - framework standard kit (useInput/useSession/inputActions/sessionId).
- * @returns the transient right-click menu (portaled) or null.
+ * @returns null (the entry is invisible chrome).
  */
 export function InputHistory({ useInput, useSession, inputActions, sessionId }: InputHistoryProps) {
   // Latest machine/session facts at event time (the listeners mount once).
@@ -118,31 +88,6 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   const browseRef = useRef<BrowseState>(RESET_BROWSE)
   const liveRef = useRef({ draft, phase, removed, inputActions })
   liveRef.current = { draft, phase, removed, inputActions }
-
-  // Right-click menu state (visible menu + the textarea it was opened from).
-  const [menu, setMenu] = useState<MenuState | null>(null)
-  const menuElRef = useRef<HTMLDivElement | null>(null)
-  const menuStateRef = useRef<MenuState | null>(null)
-  menuStateRef.current = menu
-  const closeMenu = useCallback((): void => { setMenu(null) }, [])
-
-  // One-time style tag for the portaled menu (theme tokens adapt to light/dark).
-  useEffect(() => {
-    const tag = document.createElement('style')
-    tag.dataset.plugin = 'dsh-prompt-history'
-    tag.textContent = [
-      '.dsh-ph-menu{position:fixed;z-index:2147483000;min-width:140px;padding:4px;',
-      'background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);',
-      'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);',
-      'font-family:system-ui,sans-serif;user-select:none;}',
-      '.dsh-ph-menu button{display:block;width:100%;text-align:left;padding:6px 10px;',
-      'border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);',
-      'font-size:13px;line-height:1.4;cursor:default;}',
-      '.dsh-ph-menu button:hover{background:var(--dsw-alias-bg-layer-2);}',
-    ].join('')
-    document.head.appendChild(tag)
-    return () => { tag.remove() }
-  }, [])
 
   // Session switch: start a fresh history, seen set, and browse position.
   useEffect(() => {
@@ -176,8 +121,6 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   // History keydown listener (mounts once; reads refs at event time).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      // While the context menu is open the arrows belong to the menu, not history.
-      if (menuStateRef.current !== null) return
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
       const target = e.target
       if (!(target instanceof HTMLTextAreaElement)) return
@@ -233,127 +176,46 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     return () => { document.removeEventListener('keydown', onKeyDown, true) }
   }, [])
 
-  // Right-click listener: open the custom menu on the composer textarea, close
-  // any open menu on right-clicks anywhere else.
+  // Right-click paste (terminal style): a right-click on the composer textarea
+  // pastes the clipboard directly, like a Linux terminal.
   useEffect(() => {
+    const pasteInto = (target: HTMLTextAreaElement): void => {
+      // The composer's own paste handler (chip matching, image intake) fires on
+      // the native paste event execCommand dispatches — full Ctrl+V parity.
+      if (document.execCommand('paste')) return
+      // Fallback: read text and splice it at the selection ourselves.
+      void navigator.clipboard.readText().then(
+        (text) => {
+          if (text === '') return
+          const start = target.selectionStart ?? 0
+          const end = target.selectionEnd ?? start
+          const draft = liveRef.current.draft
+          const next = draft.slice(0, start) + text + draft.slice(end)
+          liveRef.current.inputActions.setDraft(next)
+          const caret = start + text.length
+          requestAnimationFrame(() => { target.setSelectionRange(caret, caret) })
+        },
+        () => { /* clipboard read denied: nothing to paste */ },
+      )
+    }
+
     const onContextMenu = (e: MouseEvent): void => {
       const target = e.target
-      if (!(target instanceof HTMLTextAreaElement) || target.closest(COMPOSER_CARD) === null) {
-        if (menuStateRef.current !== null) closeMenu()
-        return
-      }
+      if (!(target instanceof HTMLTextAreaElement)) return
+      if (target.closest(COMPOSER_CARD) === null) return
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
       e.preventDefault()
       e.stopPropagation()
       // Right-click does not focus in browsers; focus so the caret/selection is
-      // authoritative for the menu actions (preventScroll: the caret is where
-      // the user sees it already).
+      // authoritative for the paste (preventScroll: the caret is where the user
+      // sees it already).
       target.focus({ preventScroll: true })
-      const x = Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_WIDTH - 8))
-      const y = Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_HEIGHT - 8))
-      setMenu({ x, y, target })
+      pasteInto(target)
     }
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
-  }, [closeMenu])
+  }, [])
 
-  // Menu dismissal: outside pointer-down, Escape, any scroll, and resize.
-  useEffect(() => {
-    if (menu === null) return
-    const onPointerDown = (e: PointerEvent): void => {
-      if (e.target instanceof Node && menuElRef.current?.contains(e.target)) return
-      closeMenu()
-    }
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      closeMenu()
-    }
-    const onScroll = (): void => { closeMenu() }
-    document.addEventListener('pointerdown', onPointerDown, true)
-    document.addEventListener('keydown', onKeyDown, true)
-    document.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', closeMenu)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true)
-      document.removeEventListener('keydown', onKeyDown, true)
-      document.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', closeMenu)
-    }
-  }, [menu, closeMenu])
-
-  // ---- menu actions (execCommand primary; clipboard API fallback) ----
-
-  const runPaste = useCallback((): void => {
-    const state = menuStateRef.current
-    if (state === null) return
-    const target = state.target
-    closeMenu()
-    // The composer's own paste handler (chip matching, image intake) fires on
-    // the native paste event execCommand dispatches — full Ctrl+V parity.
-    if (document.execCommand('paste')) return
-    // Fallback: read text and splice at the selection ourselves.
-    void navigator.clipboard.readText().then(
-      (text) => {
-        if (text === '') return
-        insertAtSelection(target, text, liveRef.current.draft, liveRef.current.inputActions.setDraft)
-      },
-      () => { /* clipboard read denied: nothing to paste */ },
-    )
-  }, [closeMenu])
-
-  const runCopy = useCallback((): void => {
-    const state = menuStateRef.current
-    if (state === null) return
-    const target = state.target
-    closeMenu()
-    // The composer's own copy handler (clipboard projections for chips) fires
-    // on the native copy event execCommand dispatches.
-    if (document.execCommand('copy')) return
-    const start = target.selectionStart ?? 0
-    const end = target.selectionEnd ?? start
-    const text = liveRef.current.draft.slice(start, end)
-    if (text !== '') void navigator.clipboard.writeText(text).catch(() => {})
-  }, [closeMenu])
-
-  const runCut = useCallback((): void => {
-    const state = menuStateRef.current
-    if (state === null) return
-    const target = state.target
-    closeMenu()
-    if (document.execCommand('cut')) return
-    const start = target.selectionStart ?? 0
-    const end = target.selectionEnd ?? start
-    const draft = liveRef.current.draft
-    const text = draft.slice(start, end)
-    if (text === '') return
-    void navigator.clipboard.writeText(text).then(
-      () => {
-        liveRef.current.inputActions.setDraft(draft.slice(0, start) + draft.slice(end))
-        requestAnimationFrame(() => { target.setSelectionRange(start, start) })
-      },
-      () => { /* clipboard write denied: leave the selection */ },
-    )
-  }, [closeMenu])
-
-  if (menu === null) return null
-  return createPortal(
-    <div
-      ref={menuElRef}
-      className="dsh-ph-menu"
-      role="menu"
-      aria-label="输入框菜单"
-      style={{ left: menu.x, top: menu.y }}
-      // Keep focus in the textarea: right-click must not blur the caret, or
-      // execCommand and the composer handlers would lose their target.
-      onMouseDown={(e) => { e.preventDefault() }}
-    >
-      <button type="button" role="menuitem" onClick={runPaste}>粘贴</button>
-      <button type="button" role="menuitem" onClick={runCopy}>复制</button>
-      <button type="button" role="menuitem" onClick={runCut}>剪切</button>
-    </div>,
-    document.body,
-  )
+  return null
 }
