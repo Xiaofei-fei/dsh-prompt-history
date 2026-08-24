@@ -16,6 +16,11 @@
  * handler, so images and reference chips behave identically), with a
  * navigator.clipboard fallback that splices text at the caret.
  *
+ * Copy on left-select (xterm-style): releasing a left-button drag selection in
+ * the composer textarea copies it automatically, so select → right-click paste
+ * works end to end. Copy prefers the composer's own handler (execCommand), with
+ * a navigator.clipboard fallback.
+ *
  * History is fed from the conversation snapshot's user nodes (kind 'user' and
  * 'steering'), appended as they land — so everything submitted while the page
  * is open is recallable even after the session event window slides. Consecutive
@@ -215,6 +220,33 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     }
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
+  }, [])
+
+  // Copy on left-select (xterm-style): releasing a left-button selection in the
+  // composer textarea copies it, so the subsequent right-click paste can reuse
+  // it. The composer's own copy handler (clipboard projections for chips) fires
+  // on the native copy event execCommand dispatches; a clipboard API fallback
+  // covers blocked execCommand paths.
+  useEffect(() => {
+    const copySelection = (target: HTMLTextAreaElement): void => {
+      const start = target.selectionStart ?? 0
+      const end = target.selectionEnd ?? start
+      if (start === end) return // caret click, not a selection
+      if (document.execCommand('copy')) return
+      const text = liveRef.current.draft.slice(start, end)
+      if (text !== '') void navigator.clipboard.writeText(text).catch(() => {})
+    }
+    const onMouseUp = (e: MouseEvent): void => {
+      if (e.button !== 0) return // left button only (right-click is paste)
+      const target = e.target
+      if (!(target instanceof HTMLTextAreaElement)) return
+      if (target.closest(COMPOSER_CARD) === null) return
+      const live = liveRef.current
+      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      copySelection(target)
+    }
+    document.addEventListener('mouseup', onMouseUp, true)
+    return () => { document.removeEventListener('mouseup', onMouseUp, true) }
   }, [])
 
   return null
