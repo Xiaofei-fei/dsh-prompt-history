@@ -1,7 +1,7 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.4.1",
-  "description": "DSH web plugin: terminal-style copy & paste plus bash-like prompt history for the composer — left-drag selection auto-copies, right-click pastes, Up/Down recalls previous prompts (history sourced from the session's own message log; zero config, zero extra storage).",
+  "version": "0.5.0",
+  "description": "DSH web plugin: terminal-style copy & paste plus bash-like prompt history for the composer — any selection auto-copies, right-click pastes, Up/Down recalls previous prompts (history sourced from the session's own message log; zero config, zero extra storage).",
   "keywords": [
     "dsh",
     "dsh-plugin",

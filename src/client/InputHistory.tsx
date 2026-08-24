@@ -16,10 +16,10 @@
  * handler, so images and reference chips behave identically), with a
  * navigator.clipboard fallback that splices text at the caret.
  *
- * Copy on left-select (xterm-style): releasing a left-button drag selection in
- * the composer textarea copies it automatically, so select → right-click paste
- * works end to end. Copy prefers the composer's own handler (execCommand), with
- * a navigator.clipboard fallback.
+ * Copy on select: any selection in the composer textarea (left-drag,
+ * double-click, keyboard Shift+arrows, Ctrl+A) auto-copies once it stabilizes
+ * — so select → right-click paste works end to end. Copy prefers the
+ * composer's own handler (execCommand), with a navigator.clipboard fallback.
  *
  * History is fed from the conversation snapshot's user nodes (kind 'user' and
  * 'steering'), appended as they land — so everything submitted while the page
@@ -222,52 +222,57 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
   }, [])
 
-  // Copy on left-select (xterm-style): releasing a left-button selection that
-  // started in the composer textarea copies it, so the subsequent right-click
-  // paste can reuse it. The release may land OUTSIDE the textarea (a small box
-  // with a long draft), so the drag start is tracked on mousedown and the
-  // textarea's own selection is read on mouseup instead of the event target.
-  // The composer's own copy handler (clipboard projections for chips) fires on
-  // the native copy event execCommand dispatches; a clipboard API fallback
-  // covers blocked execCommand paths.
+  // Copy on select (selection-driven): whenever the composer textarea holds a
+  // non-empty selection that has been stable briefly, copy it — regardless of
+  // how the selection was made (left-drag, double-click, keyboard Shift+arrows,
+  // Ctrl+A). The stable-window debounce keeps mid-drag partial selections out
+  // of the clipboard; a last-copied key suppresses re-copying an unchanged
+  // selection. The composer's own copy handler (clipboard projections for
+  // chips) fires on the native copy event execCommand dispatches; a clipboard
+  // API fallback covers blocked execCommand paths.
   useEffect(() => {
-    let dragStartedInTextarea = false
+    let timer: number | undefined
+    let lastKey = ''
     const copySelection = (target: HTMLTextAreaElement): void => {
       const start = target.selectionStart ?? 0
       const end = target.selectionEnd ?? start
-      if (start === end) return // caret click, not a selection
+      if (start === end) return // caret, not a selection
+      const key = `${start}:${end}`
+      if (key === lastKey) return // unchanged selection: already copied
+      lastKey = key
       // execCommand('copy') copies the focused element's selection; refocus
       // (preventScroll: the caret is where the user sees it already) in case
-      // the release landed outside the textarea and moved focus elsewhere.
+      // the selection outlived a focus change elsewhere.
       if (document.activeElement !== target) target.focus({ preventScroll: true })
-      if (document.execCommand('copy')) return
-      const text = liveRef.current.draft.slice(start, end)
+      let copied = false
+      try {
+        copied = document.execCommand('copy')
+      } catch {
+        copied = false // flaky across engines; fall back to the clipboard API
+      }
+      if (copied) return
+      const text = target.value.slice(start, end)
       if (text === '') return
       navigator.clipboard.writeText(text).then(
         () => {},
         (error) => { console.warn('[dsh-prompt-history] clipboard copy failed:', error) },
       )
     }
-    const onMouseDown = (e: MouseEvent): void => {
-      if (e.button !== 0) return
-      const target = e.target
-      dragStartedInTextarea =
-        target instanceof HTMLTextAreaElement && target.closest(COMPOSER_CARD) !== null
-    }
-    const onMouseUp = (e: MouseEvent): void => {
-      if (e.button !== 0 || !dragStartedInTextarea) return
-      dragStartedInTextarea = false
-      const live = liveRef.current
-      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+    const onSelectionChange = (): void => {
       const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
       if (textarea === null) return
-      copySelection(textarea)
+      const live = liveRef.current
+      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      const start = textarea.selectionStart ?? 0
+      const end = textarea.selectionEnd ?? start
+      if (start === end) return
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => { copySelection(textarea) }, 120)
     }
-    document.addEventListener('mousedown', onMouseDown, true)
-    document.addEventListener('mouseup', onMouseUp, true)
+    document.addEventListener('selectionchange', onSelectionChange)
     return () => {
-      document.removeEventListener('mousedown', onMouseDown, true)
-      document.removeEventListener('mouseup', onMouseUp, true)
+      document.removeEventListener('selectionchange', onSelectionChange)
+      window.clearTimeout(timer)
     }
   }, [])
 

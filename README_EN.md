@@ -1,6 +1,6 @@
 # dsh-prompt-history
 
-Terminal-style copy & paste plus bash-like prompt history for the DSH web composer: **left-drag selection auto-copies**, **right-click pastes the clipboard directly**, and **Up / Down** arrows recall previously submitted messages.
+Terminal-style copy & paste plus bash-like prompt history for the DSH web composer: **any selection auto-copies**, **right-click pastes the clipboard directly**, and **Up / Down** arrows recall previously submitted messages.
 
 ## Install
 
@@ -15,7 +15,7 @@ Then refresh the page.
 - **Up**: recall the previous submitted prompt (newest first), replacing the current draft; keep pressing Up to walk further back.
 - **Down**: walk forward; at the bottom edge, restore the line you were typing before browsing began (readline pending-line behavior).
 - **Edit exits browsing**: editing the draft while browsing drops back to the live line.
-- **Left-select copies**: dragging a selection in the composer textarea copies it on mouse release (xterm-style; double-click word and triple-click line selections work too). Copy prefers the composer's own handler (execCommand), with a navigator.clipboard fallback.
+- **Selection copies**: any non-empty selection in the composer textarea (left-drag, double/triple-click, keyboard Shift+arrows, Ctrl+A) auto-copies once it stabilizes. Copy prefers the composer's own handler (execCommand), with a navigator.clipboard fallback.
 - **Right-click pastes directly**: a right-click on the composer textarea pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a navigator.clipboard fallback when the execCommand path is blocked.
 - **Does not interfere**: while the `/` or `@` suggestion menu is open, arrow keys stay with menu navigation; IME composition, `Shift+Up` selection, `Ctrl+Up` word-jumps and other modifier chords are never intercepted; busy/removed sessions keep the browser's native right-click behavior.
 
