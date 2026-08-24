@@ -222,31 +222,53 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
   }, [])
 
-  // Copy on left-select (xterm-style): releasing a left-button selection in the
-  // composer textarea copies it, so the subsequent right-click paste can reuse
-  // it. The composer's own copy handler (clipboard projections for chips) fires
-  // on the native copy event execCommand dispatches; a clipboard API fallback
+  // Copy on left-select (xterm-style): releasing a left-button selection that
+  // started in the composer textarea copies it, so the subsequent right-click
+  // paste can reuse it. The release may land OUTSIDE the textarea (a small box
+  // with a long draft), so the drag start is tracked on mousedown and the
+  // textarea's own selection is read on mouseup instead of the event target.
+  // The composer's own copy handler (clipboard projections for chips) fires on
+  // the native copy event execCommand dispatches; a clipboard API fallback
   // covers blocked execCommand paths.
   useEffect(() => {
+    let dragStartedInTextarea = false
     const copySelection = (target: HTMLTextAreaElement): void => {
       const start = target.selectionStart ?? 0
       const end = target.selectionEnd ?? start
       if (start === end) return // caret click, not a selection
+      // execCommand('copy') copies the focused element's selection; refocus
+      // (preventScroll: the caret is where the user sees it already) in case
+      // the release landed outside the textarea and moved focus elsewhere.
+      if (document.activeElement !== target) target.focus({ preventScroll: true })
       if (document.execCommand('copy')) return
       const text = liveRef.current.draft.slice(start, end)
-      if (text !== '') void navigator.clipboard.writeText(text).catch(() => {})
+      if (text === '') return
+      navigator.clipboard.writeText(text).then(
+        () => {},
+        (error) => { console.warn('[dsh-prompt-history] clipboard copy failed:', error) },
+      )
+    }
+    const onMouseDown = (e: MouseEvent): void => {
+      if (e.button !== 0) return
+      const target = e.target
+      dragStartedInTextarea =
+        target instanceof HTMLTextAreaElement && target.closest(COMPOSER_CARD) !== null
     }
     const onMouseUp = (e: MouseEvent): void => {
-      if (e.button !== 0) return // left button only (right-click is paste)
-      const target = e.target
-      if (!(target instanceof HTMLTextAreaElement)) return
-      if (target.closest(COMPOSER_CARD) === null) return
+      if (e.button !== 0 || !dragStartedInTextarea) return
+      dragStartedInTextarea = false
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
-      copySelection(target)
+      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
+      if (textarea === null) return
+      copySelection(textarea)
     }
+    document.addEventListener('mousedown', onMouseDown, true)
     document.addEventListener('mouseup', onMouseUp, true)
-    return () => { document.removeEventListener('mouseup', onMouseUp, true) }
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown, true)
+      document.removeEventListener('mouseup', onMouseUp, true)
+    }
   }, [])
 
   return null
