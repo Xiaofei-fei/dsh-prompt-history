@@ -15,7 +15,7 @@ Then refresh the page.
 - **Up**: recall the previous submitted prompt (newest first), replacing the current draft; keep pressing Up to walk further back.
 - **Down**: walk forward; at the bottom edge, restore the line you were typing before browsing began (readline pending-line behavior).
 - **Edit exits browsing**: editing the draft while browsing drops back to the live line.
-- **Selection copies**: any non-empty selection in the composer textarea (left-drag, double/triple-click, keyboard Shift+arrows, Ctrl+A) auto-copies once it stabilizes. Copy prefers the composer's own handler (execCommand), with a navigator.clipboard fallback.
+- **Selection copies (page-wide)**: any non-empty selection in the page — the composer textarea (drag, double/triple-click, keyboard Shift+arrows, Ctrl+A), chat messages, code blocks — auto-copies once it stabilizes, with a brief "已复制" (copied) pill above the selection. The textarea path uses the composer's own copy handler (execCommand), with a navigator.clipboard fallback.
 - **Right-click pastes directly**: a right-click on the composer textarea pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a navigator.clipboard fallback when the execCommand path is blocked.
 - **Does not interfere**: while the `/` or `@` suggestion menu is open, arrow keys stay with menu navigation; IME composition, `Shift+Up` selection, `Ctrl+Up` word-jumps and other modifier chords are never intercepted; busy/removed sessions keep the browser's native right-click behavior.
 
