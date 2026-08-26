@@ -41,6 +41,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the runtime SessionStandardProps merge (useSession/sessionId) and
 // the conversation node union.
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
+import { getPrefs } from './prefs.ts'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
 export type InputHistoryProps = PropsRuntime<'conversation.input.right'>
@@ -210,6 +211,8 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       if (target.closest(COMPOSER_CARD) === null) return
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      // Toggle off: leave the native context menu alone.
+      if (!getPrefs().rightClickPaste) return
       e.preventDefault()
       e.stopPropagation()
       // Right-click does not focus in browsers; focus so the caret/selection is
@@ -318,6 +321,8 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     const onSelectionChange = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      // Toggle off: no auto-copy at all.
+      if (!getPrefs().copyOnSelect) return
       const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
       const taActive = textarea !== null
         && (document.activeElement === textarea || dragStartedInTextarea)

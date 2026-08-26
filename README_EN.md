@@ -19,11 +19,18 @@ Then refresh the page.
 - **Right-click pastes directly**: a right-click on the composer textarea pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a navigator.clipboard fallback when the execCommand path is blocked.
 - **Does not interfere**: while the `/` or `@` suggestion menu is open, arrow keys stay with menu navigation; IME composition, `Shift+Up` selection, `Ctrl+Up` word-jumps and other modifier chords are never intercepted; busy/removed sessions keep the browser's native right-click behavior.
 
+## Configuration
+
+Open **Settings → 输入框增强 (Input Box Enhancements)** to toggle either behavior independently (both on by default, stored in browser localStorage, effective immediately):
+
+- **Copy on select**: off disables auto-copy entirely.
+- **Right-click paste**: off restores the browser's native context menu.
+
 ## Features
 
 - **History comes from the session's own message log**: reads the conversation snapshot's user nodes (`user` / `steering`) and appends as they land — strictly consistent with the transcript, persisted with the session, survives page reloads, and needs no configuration or extra storage.
 - **Consecutive duplicates collapse**; browse state resets on session switch.
-- No UI, no settings; the client bundle is ~7 KB and depends only on the official `@deepseek-ai/*` peer packages.
+- The client bundle is ~17 KB and depends only on the official `@deepseek-ai/*` peer packages.
 
 ## Known limitations
 

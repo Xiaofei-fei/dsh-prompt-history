@@ -1,7 +1,7 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.5.1",
-  "description": "DSH web plugin: terminal-style copy & paste plus bash-like prompt history for the composer — any selection auto-copies, right-click pastes, Up/Down recalls previous prompts (history sourced from the session's own message log; zero config, zero extra storage).",
+  "version": "0.6.0",
+  "description": "DSH web plugin: terminal-style copy & paste plus bash-like prompt history for the composer — any selection auto-copies, right-click pastes, Up/Down recalls previous prompts, with user toggles in Settings (history sourced from the session's own message log; zero config required).",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -71,12 +71,14 @@
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.7",
     "@deepseek-ai/dsh-invariants": "0.1.0-rc.7",
     "@types/react": "~18.3.1",
