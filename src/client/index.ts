@@ -46,7 +46,7 @@ export function apply(ctx: ClientContext): void {
       name: 'settings.section',
       id: 'dsh-prompt-history',
       order: 60,
-      label: '输入框增强',
+      label: '终端式输入',
     },
     SettingsSection,
   ))

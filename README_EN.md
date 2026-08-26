@@ -21,7 +21,7 @@ Then refresh the page.
 
 ## Configuration
 
-Open **Settings → 输入框增强 (Input Box Enhancements)** to toggle either behavior independently (both on by default, stored in browser localStorage, effective immediately):
+Open **Settings → 终端式输入 (Terminal-style Input)** to toggle either behavior independently (both on by default, stored in browser localStorage, effective immediately):
 
 - **Copy on select**: off disables auto-copy entirely.
 - **Right-click paste**: off restores the browser's native context menu.

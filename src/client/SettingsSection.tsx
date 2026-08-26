@@ -12,7 +12,7 @@ export function SettingsSection(): JSX.Element {
   const prefs = useSyncExternalStore(subscribePrefs, getPrefs)
   return (
     <div className="dsh-ph-settings">
-      <h4 className="dsh-ph-title">输入框增强（dsh-prompt-history）</h4>
+      <h4 className="dsh-ph-title">终端式输入（dsh-prompt-history）</h4>
       <label className="dsh-ph-row">
         <input
           type="checkbox"
