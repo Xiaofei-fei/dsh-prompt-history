@@ -1,7 +1,8 @@
 /**
  * Prompt-history plugin, browser half: the composer entry (bash-like history,
  * copy modes, right-click paste, selection quote — see InputHistory.tsx) plus
- * a settings section with user toggles for the copy/paste behaviors.
+ * a settings section with user toggles, internationalized (zh/en follows the
+ * DSH app locale).
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.right entry)
@@ -9,11 +10,15 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the ui-settings SlotMap merge (the settings.section entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { InputHistory } from './InputHistory.tsx'
 import { SettingsSection } from './SettingsSection.tsx'
+import { NS, en, zh } from './locales.ts'
+import { setTranslator, T } from './i18n.ts'
 
-/** Required services: the slot registry the entries register into. */
-export const inject = ['slots']
+/** Required services: the slot registry, the locale service. */
+export const inject = ['slots', 'locale']
 
 /** One-time style tag for the settings section (theme tokens adapt to light/dark). */
 const SETTINGS_CSS = [
@@ -33,10 +38,10 @@ const SETTINGS_CSS = [
 ].join('')
 
 /**
- * Client plugin body: register the composer input-history entry and the
- * settings section. Both declarations live in other packages whose apply order
- * is unconstrained — slots.inject waits on each declaration and retires the
- * contribution with this plugin's fiber.
+ * Client plugin body: register the dictionaries, the composer input-history
+ * entry, and the settings section (locale-aware label). Declarations live in
+ * other packages whose apply order is unconstrained — slots.inject waits on
+ * each declaration and retires the contribution with this plugin's fiber.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -44,6 +49,10 @@ export function apply(ctx: ClientContext): void {
   style.dataset.plugin = 'dsh-prompt-history'
   style.textContent = SETTINGS_CSS
   document.head.appendChild(style)
+
+  // Dictionaries + the vanilla-DOM translator (toolbar/pills/overlay/TOC).
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompt-history: dictionaries')
+  setTranslator(ctx.locale.bind(NS))
 
   ctx.slots.inject('conversation.input.right', () => ctx.slots.register(
     { name: 'conversation.input.right', id: 'dsh-prompt-history' },
@@ -54,7 +63,9 @@ export function apply(ctx: ClientContext): void {
       name: 'settings.section',
       id: 'dsh-prompt-history',
       order: 60,
-      label: '终端式输入',
+      locale: NS,
+      // A thunk reads the active locale at render time (terminal-style icon).
+      label: () => T('settings.title'),
     },
     SettingsSection,
   ))

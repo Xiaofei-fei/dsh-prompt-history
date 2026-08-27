@@ -1,8 +1,9 @@
 /**
- * Transient DOM feedback for dsh-prompt-history: the "已复制" pill and the
+ * Transient DOM feedback for dsh-prompt-history: the copied pill and the
  * floating copy toolbar shown above a selection in 'toolbar' copy mode.
  * Vanilla DOM (no React) so both can be driven from event handlers.
  */
+import { T } from './i18n.ts'
 
 /** Copy the current document selection via execCommand, clipboard API fallback. */
 function copyDocumentSelection(): boolean {
@@ -23,7 +24,8 @@ function copyDocumentSelection(): boolean {
 }
 
 /** A brief feedback pill (已复制 / 已引用 …) above the given rect. */
-export function flashCopied(rect?: DOMRect | null, text = '已复制'): void {
+export function flashCopied(rect?: DOMRect | null, text?: string): void {
+  const label = text ?? T('pill.copied')
   let x = 8
   let y = 8
   if (rect !== undefined && rect !== null && (rect.width > 0 || rect.height > 0)) {
@@ -31,7 +33,7 @@ export function flashCopied(rect?: DOMRect | null, text = '已复制'): void {
     y = Math.max(4, rect.top - 26)
   }
   const pill = document.createElement('div')
-  pill.textContent = text
+  pill.textContent = label
   pill.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2147483000;` +
     'padding:3px 8px;border-radius:6px;pointer-events:none;' +
     'background:var(--dsw-specific-tip);border:1px solid var(--dsw-alias-border-l1);' +
@@ -80,7 +82,7 @@ export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void, onCode
   hideSelectionToolbar()
   const copyButton = document.createElement('button')
   copyButton.type = 'button'
-  copyButton.textContent = '复制'
+  copyButton.textContent = T('toolbar.copy')
   copyButton.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
   copyButton.addEventListener('click', () => {
     const copied = copyDocumentSelection()
@@ -93,7 +95,7 @@ export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void, onCode
   if (onQuote !== undefined) {
     const quoteButton = document.createElement('button')
     quoteButton.type = 'button'
-    quoteButton.textContent = '引用'
+    quoteButton.textContent = T('toolbar.quote')
     quoteButton.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
     quoteButton.addEventListener('click', () => {
       hideSelectionToolbar()
@@ -104,7 +106,7 @@ export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void, onCode
   if (onCode !== undefined) {
     const codeButton = document.createElement('button')
     codeButton.type = 'button'
-    codeButton.textContent = '代码'
+    codeButton.textContent = T('toolbar.code')
     codeButton.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
     codeButton.addEventListener('click', () => {
       hideSelectionToolbar()

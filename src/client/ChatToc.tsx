@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
+import { T } from './i18n.ts'
 
 /** One directory entry: the prompt text and a row index for scroll targeting. */
 export interface TocEntry {
@@ -150,8 +151,8 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
       <button
         type="button"
         className="dsh-ph-toc-grip"
-        aria-label="会话目录（可拖动）"
-        title="会话目录（可拖动）"
+        aria-label={T('toc.aria')}
+        title={T('toc.aria')}
         onClick={() => {
           if (movedRef.current) { movedRef.current = false; return } // a drag is not a click
           measure()
@@ -168,7 +169,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
           className="dsh-ph-toc"
           style={{ top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230) }}
         >
-          <div className="dsh-ph-toc-title">会话目录</div>
+          <div className="dsh-ph-toc-title">{T('toc.title')}</div>
           <div className="dsh-ph-toc-list">
             {entries.map((entry, i) => (
               <button

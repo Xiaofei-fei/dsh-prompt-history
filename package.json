@@ -1,7 +1,7 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.17.0",
-  "description": "DSH web plugin: terminal-style input for the composer — selection toolbar with copy and quote (Codex-style > blockquote), right-click paste, Up/Down prompt history, with copy modes in Settings (history sourced from the session's own message log; zero config required).",
+  "version": "1.0.0",
+  "description": "DSH web plugin: terminal-style input for the composer — bash-like Up/Down prompt history with prefix search and Ctrl+R, selection toolbar with copy and quote (Codex-style > blockquote), right-click paste, draggable chat TOC, fully internationalized (zh/en), with copy modes in Settings (history sourced from the session's own message log; zero config required).",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -48,7 +48,8 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web"
     }
@@ -61,12 +62,15 @@
     "src",
     "cordis.patch.yml",
     "README.md",
-    "README_EN.md",
+    "README.en.md",
+    "README.es.md",
+    "README.pt.md",
     "LICENSE"
   ],
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
@@ -77,6 +81,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-locale": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.7",
