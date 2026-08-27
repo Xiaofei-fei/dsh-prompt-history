@@ -42,7 +42,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // the conversation node union.
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { getPrefs } from './prefs.ts'
-import { flashCopied, hideSelectionToolbar, showSelectionToolbar } from './feedback.ts'
+import {
+  flashCopied, hideSearchOverlay, hideSelectionToolbar, showSearchOverlay, showSelectionToolbar,
+} from './feedback.ts'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
 export type InputHistoryProps = PropsRuntime<'conversation.input.right'>
@@ -55,6 +57,18 @@ interface BrowseState {
   readonly saved: string
   /** The exact draft our own setDraft last wrote (user-edit detection). */
   readonly lastSet: string | null
+  /** Present only in prefix-search mode: the prefix that anchors the matches. */
+  readonly prefix?: string
+}
+
+/** One active Ctrl+R reverse-search session (null = not searching). */
+interface SearchState {
+  /** The draft before the search started (restored on Escape). */
+  readonly preSearch: string
+  /** The incremental query typed so far. */
+  readonly query: string
+  /** History index of the currently displayed match (-1 = no match). */
+  readonly matchIndex: number
 }
 
 /** Not-browsing state; also the reset target after edits and session switches. */
@@ -93,6 +107,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   /** User-node seqs already folded into historyRef (append-once dedup). */
   const seenRef = useRef<Set<number>>(new Set())
   const browseRef = useRef<BrowseState>(RESET_BROWSE)
+  const searchRef = useRef<SearchState | null>(null)
   const liveRef = useRef({ draft, phase, removed, inputActions })
   liveRef.current = { draft, phase, removed, inputActions }
 
@@ -101,6 +116,8 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     historyRef.current = []
     seenRef.current = new Set()
     browseRef.current = RESET_BROWSE
+    searchRef.current = null
+    hideSearchOverlay()
   }, [sessionId])
 
   // Fold newly arrived user messages into the history (window slides; the
@@ -125,28 +142,122 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     if (browse.index !== -1 && draft !== browse.lastSet) browseRef.current = RESET_BROWSE
   }, [draft])
 
-  // History keydown listener (mounts once; reads refs at event time).
+  // History keydown listener (mounts once; reads refs at event time):
+  // ↑/↓ browse (with bash-style prefix search when the draft is non-empty)
+  // and Ctrl+R incremental reverse search.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
       const target = e.target
       if (!(target instanceof HTMLTextAreaElement)) return
       const card = target.closest(COMPOSER_CARD)
       if (card === null) return
-      // IME composition and modifier chords stay native (Shift+Up selects text,
-      // Ctrl+Up moves by word).
+      // IME composition stays native; the suggestion menu owns the keys.
       if (e.isComposing || e.keyCode === 229) return
-      if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
-      // The suggestion menu owns the arrows while it is open.
       if (card.querySelector(OPEN_MENU) !== null) return
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
       const history = historyRef.current
-      if (history.length === 0) return
-      // The browse indexes below are always in bounds (derived from the length
-      // or a clamped prior index), so the undefined arm of the indexed read is
-      // unreachable; the fallback keeps the write and the lastSet echo aligned.
       const recall = (index: number): string => history[index] ?? ''
+      const searchMatches = (query: string): number[] => {
+        const out: number[] = []
+        history.forEach((entry, i) => { if (entry.includes(query)) out.push(i) })
+        return out
+      }
+      const prefixMatches = (prefix: string): number[] => {
+        const out: number[] = []
+        history.forEach((entry, i) => { if (entry.startsWith(prefix)) out.push(i) })
+        return out
+      }
+
+      // ---- Ctrl+R: start reverse search, or step to the older match ----
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'r') {
+        const active = searchRef.current
+        if (active !== null) {
+          e.preventDefault()
+          e.stopPropagation()
+          const matches = searchMatches(active.query)
+          const pos = matches.indexOf(active.matchIndex)
+          if (pos > 0) {
+            const matchIndex = matches[pos - 1] ?? 0
+            searchRef.current = { ...active, matchIndex }
+            live.inputActions.setDraft(recall(matchIndex))
+            showSearchOverlay(active.query, recall(matchIndex))
+          }
+          return
+        }
+        if (history.length === 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        hideSelectionToolbar()
+        const matchIndex = history.length - 1
+        searchRef.current = { preSearch: live.draft, query: '', matchIndex }
+        live.inputActions.setDraft(recall(matchIndex))
+        showSearchOverlay('', recall(matchIndex))
+        return
+      }
+
+      // ---- active reverse search: typed keys feed the query ----
+      const active = searchRef.current
+      if (active !== null) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault(); e.stopPropagation()
+          searchRef.current = null
+          hideSearchOverlay()
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault(); e.stopPropagation()
+          searchRef.current = null
+          hideSearchOverlay()
+          live.inputActions.setDraft(active.preSearch)
+          return
+        }
+        if (e.key === 'Backspace') {
+          e.preventDefault(); e.stopPropagation()
+          const query = active.query.slice(0, -1)
+          const matches = searchMatches(query)
+          if (query === '') {
+            const matchIndex = history.length - 1
+            searchRef.current = { ...active, query, matchIndex }
+            live.inputActions.setDraft(recall(matchIndex))
+            showSearchOverlay('', recall(matchIndex))
+          } else if (matches.length > 0) {
+            const matchIndex = matches[matches.length - 1] ?? 0
+            searchRef.current = { ...active, query, matchIndex }
+            live.inputActions.setDraft(recall(matchIndex))
+            showSearchOverlay(query, recall(matchIndex))
+          } else {
+            searchRef.current = { ...active, query, matchIndex: -1 }
+            showSearchOverlay(query, '(无匹配)')
+          }
+          return
+        }
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault(); e.stopPropagation()
+          const query = active.query + e.key
+          const matches = searchMatches(query)
+          const matchIndex = matches.length > 0 ? (matches[matches.length - 1] ?? 0) : -1
+          searchRef.current = { ...active, query, matchIndex }
+          if (matchIndex >= 0) {
+            live.inputActions.setDraft(recall(matchIndex))
+            showSearchOverlay(query, recall(matchIndex))
+          } else {
+            live.inputActions.setDraft(active.preSearch)
+            showSearchOverlay(query, '(无匹配)')
+          }
+          return
+        }
+        // Any other key exits the search, keeping the current match (the key
+        // then applies to the draft natively).
+        searchRef.current = null
+        hideSearchOverlay()
+        return
+      }
+
+      // ---- arrow keys: prefix search (non-empty draft) or plain browse ----
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
+      if (history.length === 0) return
       const browse = browseRef.current
 
       if (e.key === 'ArrowDown' && browse.index === -1) return // native caret-down on the live line
@@ -156,10 +267,30 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
 
       if (e.key === 'ArrowUp') {
         if (browse.index === -1) {
-          // Enter browsing: save the live line, recall the newest prompt.
-          const index = history.length - 1
-          browseRef.current = { index, saved: live.draft, lastSet: recall(index) }
-          live.inputActions.setDraft(recall(index))
+          const draft = live.draft
+          if (draft !== '') {
+            // Prefix search: the typed line is the prefix; recall the most
+            // recent history entry starting with it (bash history-search-backward).
+            const matches = prefixMatches(draft)
+            if (matches.length === 0) return // no prefix match: keep the line
+            const index = matches[matches.length - 1] ?? 0
+            browseRef.current = { index, saved: draft, lastSet: recall(index), prefix: draft }
+            live.inputActions.setDraft(recall(index))
+          } else {
+            // Plain recall: save the live line, recall the newest prompt.
+            const index = history.length - 1
+            browseRef.current = { index, saved: '', lastSet: recall(index) }
+            live.inputActions.setDraft(recall(index))
+          }
+        } else if (browse.prefix !== undefined) {
+          // Walk further back through prefix matches.
+          const matches = prefixMatches(browse.prefix)
+          const pos = matches.indexOf(browse.index)
+          if (pos > 0) {
+            const index = matches[pos - 1] ?? 0
+            browseRef.current = { ...browse, index, lastSet: recall(index) }
+            live.inputActions.setDraft(recall(index))
+          }
         } else {
           const index = Math.max(0, browse.index - 1)
           browseRef.current = { ...browse, index, lastSet: recall(index) }
@@ -169,7 +300,19 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       }
 
       // ArrowDown while browsing.
-      if (browse.index + 1 >= history.length) {
+      if (browse.prefix !== undefined) {
+        const matches = prefixMatches(browse.prefix)
+        const pos = matches.indexOf(browse.index)
+        if (pos < matches.length - 1) {
+          const index = matches[pos + 1] ?? 0
+          browseRef.current = { ...browse, index, lastSet: recall(index) }
+          live.inputActions.setDraft(recall(index))
+        } else {
+          // Bottom edge of the prefix matches: restore the typed prefix.
+          browseRef.current = RESET_BROWSE
+          live.inputActions.setDraft(browse.saved)
+        }
+      } else if (browse.index + 1 >= history.length) {
         // Bottom edge: restore the saved live line and stop browsing.
         browseRef.current = RESET_BROWSE
         live.inputActions.setDraft(browse.saved)

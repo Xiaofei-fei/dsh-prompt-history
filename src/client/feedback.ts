@@ -110,3 +110,49 @@ export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void): void 
   document.body.appendChild(el)
   bar = el
 }
+
+// ---- reverse-search overlay (Ctrl+R) ----
+
+const SEARCH_CLASS = 'dsh-ph-search'
+let searchBar: HTMLDivElement | null = null
+
+/** Hide the reverse-search prompt bar (idempotent). */
+export function hideSearchOverlay(): void {
+  if (searchBar !== null) {
+    searchBar.remove()
+    searchBar = null
+  }
+}
+
+/**
+ * Show the bash-style reverse-search prompt above the composer card:
+ * `(reverse-i-search)`query': match-preview`. Display-only (pointer-events
+ * none), so it never interferes with the input underneath.
+ */
+export function showSearchOverlay(query: string, match: string): void {
+  hideSearchOverlay()
+  const card = document.querySelector('[data-composer-card]')
+  const cardRect = card instanceof HTMLElement ? card.getBoundingClientRect() : null
+  const el = document.createElement('div')
+  el.className = SEARCH_CLASS
+  const q = document.createElement('span')
+  q.className = 'dsh-ph-search-q'
+  q.textContent = query
+  const m = document.createElement('span')
+  m.className = 'dsh-ph-search-m'
+  m.textContent = match.length > 64 ? `${match.slice(0, 64)}…` : match
+  el.append('(reverse-i-search)`')
+  el.append(q)
+  el.append("': ")
+  el.append(m)
+  el.style.cssText = 'position:fixed;z-index:2147483000;pointer-events:none;' +
+    'left:50%;transform:translateX(-50%);' +
+    `top:${cardRect !== null ? Math.max(4, cardRect.top - 34) : 8}px;` +
+    'max-width:min(640px, calc(100vw - 24px));padding:5px 12px;border-radius:8px;' +
+    'background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);' +
+    'color:var(--dsw-alias-label-primary);font:12px ui-monospace,SFMono-Regular,Consolas,monospace;' +
+    'box-shadow:0 4px 16px rgba(0,0,0,.25);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+  q.style.cssText = 'color:var(--dsw-static-blue-900);'
+  document.body.appendChild(el)
+  searchBar = el
+}
