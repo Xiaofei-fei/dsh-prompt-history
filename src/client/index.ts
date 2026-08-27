@@ -21,7 +21,7 @@ const SETTINGS_CSS = [
   '.dsh-ph-title{margin:0 0 10px;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);}',
   '.dsh-ph-row{display:flex;align-items:flex-start;gap:8px;margin:8px 0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary);cursor:pointer;}',
   '.dsh-ph-row input{margin-top:3px;accent-color:var(--dsw-static-blue-900);}',
-  '.dsh-ph-note{margin:10px 0 0;font-size:12px;color:var(--dsw-alias-label-tertiary);}',
+  '.dsh-ph-note{margin:10px 0 0;font-size:12px;color:var(--dsw-alias-label-tertiary);}', '.dsh-ph-group{margin:8px 0 4px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);}', '.dsh-ph-hint{color:var(--dsw-alias-label-tertiary);}',
 ].join('')
 
 /**

@@ -42,6 +42,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // the conversation node union.
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { getPrefs } from './prefs.ts'
+import { flashCopied, hideSelectionToolbar, showSelectionToolbar } from './feedback.ts'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
 export type InputHistoryProps = PropsRuntime<'conversation.input.right'>
@@ -225,42 +226,34 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
   }, [])
 
-  // Copy on select (selection-driven, terminal-wide): whenever any non-empty
-  // selection in the page has been stable briefly, copy it — the composer
-  // textarea (chip-aware via the composer's own copy handler), chat messages,
-  // code blocks, anything. A stable-window debounce keeps mid-drag partial
-  // selections out of the clipboard; a last-copied key suppresses re-copying
-  // an unchanged selection. A brief "已复制" pill appears on success, so the
-  // copy is visible. execCommand('copy') is the primary path (it needs the
-  // focused element for textarea selections); the clipboard API is the
-  // fallback and logs failures.
+  // Selection-driven copy, three modes (Settings → 终端式输入): 'auto' copies
+  // any stable non-empty selection directly (terminal-style, floods the system
+  // clipboard — opt-in); 'toolbar' (default) shows an explicit 复制 button
+  // above the selection and copies only when clicked (nothing writes the
+  // clipboard on its own); 'off' does nothing. Both active modes apply
+  // anywhere in the page — the composer textarea (chip-aware via the
+  // composer's own copy handler), chat messages, code blocks. A stable-window
+  // debounce keeps mid-drag partial selections out; the toolbar is dismissed
+  // by collapsing the selection, Escape, scrolling, or clicking elsewhere.
   useEffect(() => {
     let timer: number | undefined
     let lastKey = ''
     let dragStartedInTextarea = false
 
-    const flashCopied = (): void => {
-      let x = 8
-      let y = 8
+    const selectionRect = (): DOMRect | null => {
       try {
         const sel = document.getSelection()
         if (sel !== null && !sel.isCollapsed && sel.rangeCount > 0) {
           const rect = sel.getRangeAt(0).getBoundingClientRect()
-          if (rect.width > 0 || rect.height > 0) {
-            x = Math.max(4, Math.min(rect.left, window.innerWidth - 90))
-            y = Math.max(4, rect.top - 26)
-          }
+          if (rect.width > 0 || rect.height > 0) return rect
         }
-      } catch { /* fall back to the corner position */ }
-      const pill = document.createElement('div')
-      pill.textContent = '已复制'
-      pill.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2147483000;` +
-        'padding:3px 8px;border-radius:6px;pointer-events:none;' +
-        'background:var(--dsw-specific-tip);border:1px solid var(--dsw-alias-border-l1);' +
-        'color:var(--dsw-alias-label-primary);font:12px system-ui,sans-serif;' +
-        'box-shadow:0 2px 8px rgba(0,0,0,.2);'
-      document.body.appendChild(pill)
-      window.setTimeout(() => { pill.remove() }, 800)
+      } catch { /* no range for textarea selections in some engines */ }
+      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
+      if (textarea !== null && document.activeElement === textarea) {
+        const rect = textarea.getBoundingClientRect()
+        if (rect.width > 0 || rect.height > 0) return rect
+      }
+      return null
     }
 
     const copyText = (text: string, key: string, focusTarget?: HTMLTextAreaElement): void => {
@@ -276,12 +269,12 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
         ok = false // flaky across engines; fall back to the clipboard API
       }
       if (ok) {
-        flashCopied()
+        flashCopied(selectionRect())
         return
       }
       if (text === '') return
       navigator.clipboard.writeText(text).then(
-        () => { flashCopied() },
+        () => { flashCopied(selectionRect()) },
         (error) => { console.warn('[dsh-prompt-history] clipboard copy failed:', error) },
       )
     }
@@ -320,9 +313,15 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
 
     const onSelectionChange = (): void => {
       const live = liveRef.current
-      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
-      // Toggle off: no auto-copy at all.
-      if (!getPrefs().copyOnSelect) return
+      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) {
+        hideSelectionToolbar()
+        return
+      }
+      const mode = getPrefs().copyMode
+      if (mode === 'off') {
+        hideSelectionToolbar()
+        return
+      }
       const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
       const taActive = textarea !== null
         && (document.activeElement === textarea || dragStartedInTextarea)
@@ -331,19 +330,48 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       const domActive = sel !== null && !sel.isCollapsed
       if (!taActive && !domActive) {
         window.clearTimeout(timer)
+        hideSelectionToolbar()
         return
       }
       window.clearTimeout(timer)
-      timer = window.setTimeout(copySelection, 120)
+      timer = window.setTimeout(() => {
+        if (mode === 'auto') {
+          copySelection()
+        } else {
+          const rect = selectionRect()
+          if (rect !== null) showSelectionToolbar(rect)
+        }
+      }, 150)
     }
+
+    // Toolbar dismissal: Escape, scrolling anywhere, and pointer-down outside
+    // the toolbar itself (its own mousedown is suppressed to keep the
+    // selection, and the click handler copies before any hide).
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') hideSelectionToolbar()
+    }
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.target instanceof Element && e.target.closest('.dsh-ph-toolbar') !== null) return
+      hideSelectionToolbar()
+    }
+    const onScroll = (): void => { hideSelectionToolbar() }
 
     document.addEventListener('selectionchange', onSelectionChange)
     document.addEventListener('mousedown', onMouseDown, true)
-    console.info('[dsh-prompt-history] copy-on-select active')
+    document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', hideSelectionToolbar)
+    console.info('[dsh-prompt-history] copy modes active (toolbar/auto/off)')
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange)
       document.removeEventListener('mousedown', onMouseDown, true)
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', hideSelectionToolbar)
       window.clearTimeout(timer)
+      hideSelectionToolbar()
     }
   }, [])
 
