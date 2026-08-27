@@ -359,8 +359,10 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId, in
       // Preferred: a reference chip with its expansion text cached for submit.
       const ref = nextQuoteRef()
       storeQuoteText(ref, quoted)
-      const plain = quoted.replace(/^> /, '') // label shows the content, not the quote marker
-      const preview = plain.length > 24 ? `${plain.slice(0, 24)}…` : plain
+      // The label carries the FULL quoted text — the one-cell chip clips it
+      // visually, but the chip's hover tooltip and the preview strip below the
+      // composer both show everything.
+      const preview = quoted
       const inserted = insertQuoteRef(
         { source: 'quote', ref, label: `引用：${preview}`, clipboardText: quoted },
         { start: caret, end: caret, draftRev: live.draftRev },

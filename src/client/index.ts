@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the ui-settings SlotMap merge (the settings.section entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { InputHistory } from './InputHistory.tsx'
+import { QuotePreview } from './QuotePreview.tsx'
 import { SettingsSection } from './SettingsSection.tsx'
 import { createQuoteSource } from './quote-source.ts'
 
@@ -26,6 +27,10 @@ const SETTINGS_CSS = [
   '.dsh-ph-note{margin:10px 0 0;font-size:12px;color:var(--dsw-alias-label-tertiary);}',
   '.dsh-ph-group{margin:8px 0 4px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);}',
   '.dsh-ph-hint{color:var(--dsw-alias-label-tertiary);}',
+  '.dsh-ph-quotes{display:flex;flex-direction:column;gap:6px;padding:8px 12px;margin:0 auto 6px;max-width:var(--dsh-composer-card-max-width);border-radius:10px;background:var(--dsw-specific-tip);border:1px solid var(--dsw-alias-border-l1);}',
+  '.dsh-ph-quote{display:flex;gap:8px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-primary-dimmed);}',
+  '.dsh-ph-quote-tag{flex:none;color:var(--dsw-static-blue-900);font-weight:600;}',
+  '.dsh-ph-quote-body{white-space:pre-wrap;word-break:break-word;min-width:0;}',
 ].join('')
 
 /**
@@ -70,6 +75,12 @@ export function apply(ctx: ClientContext): void {
       }),
     },
     InputHistory,
+  ))
+  // The quote preview strip: shows the full content of every quote chip in the
+  // draft above the composer (one row per chip, live-updating).
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register(
+    { name: 'conversation.input.dock', id: 'dsh-prompt-history-quotes', order: 100 },
+    QuotePreview,
   ))
   ctx.slots.inject('settings.section', () => ctx.slots.register(
     {
