@@ -103,13 +103,15 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
         aria-label="会话目录"
         title="会话目录"
         onClick={() => { measure(); setOpen((v) => !v) }}
-        style={{ top: gripY - 24, left: Math.max(0, origin.left - 26) }}
-      />
+        style={{ top: gripY - 26, left: origin.left + 6 }}
+      >
+        ☰
+      </button>
       {open && entries.length > 0 && (
         <div
           ref={panelRef}
           className="dsh-ph-toc"
-          style={{ top: origin.top + 8, left: Math.max(0, origin.left - 220) }}
+          style={{ top: origin.top + 8, left: origin.left + 30 }}
         >
           <div className="dsh-ph-toc-title">会话目录</div>
           <div className="dsh-ph-toc-list">
