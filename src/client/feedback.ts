@@ -22,8 +22,8 @@ function copyDocumentSelection(): boolean {
   return true
 }
 
-/** A brief "已复制" pill above the given rect (or the top-left corner). */
-export function flashCopied(rect?: DOMRect | null): void {
+/** A brief feedback pill (已复制 / 已引用 …) above the given rect. */
+export function flashCopied(rect?: DOMRect | null, text = '已复制'): void {
   let x = 8
   let y = 8
   if (rect !== undefined && rect !== null && (rect.width > 0 || rect.height > 0)) {
@@ -31,7 +31,7 @@ export function flashCopied(rect?: DOMRect | null): void {
     y = Math.max(4, rect.top - 26)
   }
   const pill = document.createElement('div')
-  pill.textContent = '已复制'
+  pill.textContent = text
   pill.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:2147483000;` +
     'padding:3px 8px;border-radius:6px;pointer-events:none;' +
     'background:var(--dsw-specific-tip);border:1px solid var(--dsw-alias-border-l1);' +
@@ -68,27 +68,40 @@ export function hideSelectionToolbar(): void {
 }
 
 /**
- * Show the floating copy toolbar above the selection rect. Clicking 复制 copies
- * the current document selection and flashes the copied pill; mousedown is
- * suppressed so the selection survives the click.
+ * Show the floating selection toolbar above the selection rect: 复制 copies
+ * the current document selection; 引用 (when a handler is given) hands the
+ * selection to the caller for insertion into the composer as a quote. Mousedown
+ * is suppressed so the selection survives the click.
  * @param rect - the selection's bounding rect (toolbar sits above it).
+ * @param onQuote - quote handler; renders the 引用 button only when provided.
  */
-export function showSelectionToolbar(rect: DOMRect): void {
+export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void): void {
   ensureToolbarStyle()
   hideSelectionToolbar()
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.textContent = '复制'
-  button.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
-  button.addEventListener('click', () => {
+  const copyButton = document.createElement('button')
+  copyButton.type = 'button'
+  copyButton.textContent = '复制'
+  copyButton.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
+  copyButton.addEventListener('click', () => {
     const copied = copyDocumentSelection()
     hideSelectionToolbar()
     if (copied) flashCopied(rect)
   })
   const el = document.createElement('div')
   el.className = BAR_CLASS
-  el.appendChild(button)
-  const W = 64
+  el.appendChild(copyButton)
+  if (onQuote !== undefined) {
+    const quoteButton = document.createElement('button')
+    quoteButton.type = 'button'
+    quoteButton.textContent = '引用'
+    quoteButton.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
+    quoteButton.addEventListener('click', () => {
+      hideSelectionToolbar()
+      onQuote()
+    })
+    el.appendChild(quoteButton)
+  }
+  const W = onQuote !== undefined ? 112 : 64
   const H = 30
   const x = Math.max(4, Math.min(rect.left + rect.width / 2 - W / 2, window.innerWidth - W - 4))
   const y = Math.max(4, rect.top - H - 4)

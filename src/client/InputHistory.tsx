@@ -311,6 +311,37 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
         target instanceof HTMLTextAreaElement && target.closest(COMPOSER_CARD) !== null
     }
 
+    // 引用: insert the selected text into the composer as a markdown quote
+    // (each line prefixed with '> ', Codex-style), at the caret when the
+    // textarea is focused, otherwise appended at the end of the draft.
+    const quoteSelection = (): void => {
+      const live = liveRef.current
+      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
+      if (textarea === null) return
+      const textareaFocused = document.activeElement === textarea
+      let text = ''
+      if (textareaFocused && (textarea.selectionStart ?? 0) < (textarea.selectionEnd ?? 0)) {
+        text = textarea.value.slice(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0)
+      } else {
+        const sel = document.getSelection()
+        if (sel !== null && !sel.isCollapsed) text = sel.toString()
+      }
+      if (text.trim() === '') return
+      const quoted = '> ' + text.replace(/\n/g, '\n> ')
+      const draft = liveRef.current.draft
+      const caret = textareaFocused ? (textarea.selectionStart ?? draft.length) : draft.length
+      const prefix = caret > 0 && draft[caret - 1] !== '\n' ? '\n' : ''
+      const next = draft.slice(0, caret) + prefix + quoted + draft.slice(caret)
+      live.inputActions.setDraft(next)
+      const pos = caret + prefix.length + quoted.length
+      requestAnimationFrame(() => {
+        textarea.focus({ preventScroll: true })
+        textarea.setSelectionRange(pos, pos)
+      })
+      flashCopied(null, '已引用')
+    }
+
     const onSelectionChange = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) {
@@ -339,7 +370,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
           copySelection()
         } else {
           const rect = selectionRect()
-          if (rect !== null) showSelectionToolbar(rect)
+          if (rect !== null) showSelectionToolbar(rect, quoteSelection)
         }
       }, 150)
     }
