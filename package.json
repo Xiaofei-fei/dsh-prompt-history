@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "DSH web plugin: terminal-style input for the composer — selection toolbar with copy and quote (Codex-style > blockquote), right-click paste, Up/Down prompt history, with copy modes in Settings (history sourced from the session's own message log; zero config required).",
   "keywords": [
     "dsh",
