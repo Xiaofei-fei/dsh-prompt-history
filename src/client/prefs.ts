@@ -20,10 +20,12 @@ export interface PluginPrefs {
   copyMode: CopyMode
   /** Right-click on the composer textarea pastes the clipboard directly. */
   rightClickPaste: boolean
+  /** Keep one global prompt-history ring across sessions (localStorage). */
+  globalHistory: boolean
 }
 
 const STORAGE_KEY = 'dsh-prompt-history.prefs'
-const DEFAULTS: PluginPrefs = { copyMode: 'toolbar', rightClickPaste: true }
+const DEFAULTS: PluginPrefs = { copyMode: 'toolbar', rightClickPaste: true, globalHistory: false }
 
 /** Current prefs; replaced on every setPref (stable snapshot identity). */
 let prefs: PluginPrefs = load()
@@ -47,6 +49,7 @@ function load(): PluginPrefs {
     return {
       copyMode,
       rightClickPaste: typeof parsed.rightClickPaste === 'boolean' ? parsed.rightClickPaste : DEFAULTS.rightClickPaste,
+      globalHistory: typeof parsed.globalHistory === 'boolean' ? parsed.globalHistory : DEFAULTS.globalHistory,
     }
   } catch {
     return fallback()

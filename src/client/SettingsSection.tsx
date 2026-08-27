@@ -44,6 +44,15 @@ export function SettingsSection(): JSX.Element {
         <span>右键直接粘贴：输入框上右键即粘贴剪贴板内容（终端风格，不弹菜单）</span>
       </label>
 
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.globalHistory}
+          onChange={(e) => { setPref('globalHistory', e.target.checked) }}
+        />
+        <span>跨会话历史记忆：↑/↓ 历史在会话间保持（存于浏览器本地，上限 200 条）</span>
+      </label>
+
       <p className="dsh-ph-note">历史（↑/↓、前缀搜索、Ctrl+R）始终开启。设置存于浏览器本地，修改立即生效。</p>
     </div>
   )

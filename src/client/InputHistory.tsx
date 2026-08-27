@@ -112,9 +112,39 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   const liveRef = useRef({ draft, phase, removed, inputActions })
   liveRef.current = { draft, phase, removed, inputActions }
 
-  // Session switch: start a fresh history, seen set, and browse position.
+  // Cross-session history ring: when the setting is on, the history persists
+  // in localStorage (capped), survives reloads and session switches, and is
+  // deduplicated against the whole ring instead of only consecutive entries.
+  const RING_KEY = 'dsh-prompt-history.global'
+  const RING_CAP = 200
+  const loadRing = (): string[] => {
+    try {
+      const raw = localStorage.getItem(RING_KEY)
+      if (raw === null) return []
+      const parsed = JSON.parse(raw) as unknown
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  }
+  const saveRing = (history: readonly string[]): void => {
+    try {
+      localStorage.setItem(RING_KEY, JSON.stringify(history.slice(-RING_CAP)))
+    } catch { /* storage unavailable */ }
+  }
+
+  // Seed the ring once on mount when the option is on.
   useEffect(() => {
-    historyRef.current = []
+    if (getPrefs().globalHistory && historyRef.current.length === 0) {
+      historyRef.current = loadRing()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Session switch: with global history the ring persists (only the transient
+  // browse/search state resets); otherwise a fresh per-session history.
+  useEffect(() => {
+    if (!getPrefs().globalHistory) historyRef.current = []
     seenRef.current = new Set()
     browseRef.current = RESET_BROWSE
     searchRef.current = null
@@ -122,18 +152,23 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   }, [sessionId])
 
   // Fold newly arrived user messages into the history (window slides; the
-  // append-only list survives it).
+  // append-only list survives it). With global history, dedup against the
+  // whole ring and persist it after every append.
   useEffect(() => {
     const seen = seenRef.current
     const history = historyRef.current
+    const globalOn = getPrefs().globalHistory
     for (const node of nodes) {
       if (node.kind !== 'user' && node.kind !== 'steering') continue
       if (seen.has(node.seq)) continue
       seen.add(node.seq)
       const text = promptText(node)
       if (text === null) continue
-      if (history[history.length - 1] !== text) history.push(text)
+      if (globalOn ? !history.includes(text) : history[history.length - 1] !== text) {
+        history.push(text)
+      }
     }
+    if (globalOn) saveRing(historyRef.current)
   }, [nodes])
 
   // Any draft change that is not our own history write ends the browse
@@ -494,6 +529,29 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       flashCopied(null, '已引用')
     }
 
+    // 代码: copy the selected text wrapped in a fenced code block (``` ... ```),
+    // the Codex-style "copy as code" action.
+    const codeSelection = (): void => {
+      const live = liveRef.current
+      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
+      if (textarea === null) return
+      const textareaFocused = document.activeElement === textarea
+      let text = ''
+      if (textareaFocused && (textarea.selectionStart ?? 0) < (textarea.selectionEnd ?? 0)) {
+        text = textarea.value.slice(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0)
+      } else {
+        const sel = document.getSelection()
+        if (sel !== null && !sel.isCollapsed) text = sel.toString()
+      }
+      if (text.trim() === '') return
+      const code = '```\n' + text.replace(/\n+$/, '') + '\n```'
+      navigator.clipboard.writeText(code).then(
+        () => { flashCopied(null, '已复制代码块') },
+        (error) => { console.warn('[dsh-prompt-history] clipboard copy failed:', error) },
+      )
+    }
+
     const onSelectionChange = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) {
@@ -522,7 +580,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
           copySelection()
         } else {
           const rect = selectionRect()
-          if (rect !== null) showSelectionToolbar(rect, quoteSelection)
+          if (rect !== null) showSelectionToolbar(rect, quoteSelection, codeSelection)
         }
       }, 150)
     }

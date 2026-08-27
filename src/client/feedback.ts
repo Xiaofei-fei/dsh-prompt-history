@@ -75,7 +75,7 @@ export function hideSelectionToolbar(): void {
  * @param rect - the selection's bounding rect (toolbar sits above it).
  * @param onQuote - quote handler; renders the 引用 button only when provided.
  */
-export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void): void {
+export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void, onCode?: () => void): void {
   ensureToolbarStyle()
   hideSelectionToolbar()
   const copyButton = document.createElement('button')
@@ -101,7 +101,18 @@ export function showSelectionToolbar(rect: DOMRect, onQuote?: () => void): void 
     })
     el.appendChild(quoteButton)
   }
-  const W = onQuote !== undefined ? 112 : 64
+  if (onCode !== undefined) {
+    const codeButton = document.createElement('button')
+    codeButton.type = 'button'
+    codeButton.textContent = '代码'
+    codeButton.addEventListener('mousedown', (e) => { e.preventDefault() }) // keep the selection
+    codeButton.addEventListener('click', () => {
+      hideSelectionToolbar()
+      onCode()
+    })
+    el.appendChild(codeButton)
+  }
+  const W = onQuote !== undefined || onCode !== undefined ? 164 : 64
   const H = 30
   const x = Math.max(4, Math.min(rect.left + rect.width / 2 - W / 2, window.innerWidth - W - 4))
   const y = Math.max(4, rect.top - H - 4)
