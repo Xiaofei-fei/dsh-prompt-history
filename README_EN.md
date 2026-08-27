@@ -20,6 +20,10 @@ Then refresh the page.
 - **Right-click pastes directly**: a right-click on the composer textarea pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a navigator.clipboard fallback when the execCommand path is blocked.
 - **Does not interfere**: while the `/` or `@` suggestion menu is open, arrow keys stay with menu navigation; IME composition, `Shift+Up` selection, `Ctrl+Up` word-jumps and other modifier chords are never intercepted; busy/removed sessions keep the browser's native right-click behavior.
 
+## Chat TOC (conversation directory)
+
+When the conversation gets long, a subtle semi-transparent grip on the chat's left edge (brightens on hover) expands a directory of every user message in order — click any entry to jump to that spot; click outside or press Esc to close.
+
 ## Configuration
 
 Open **Settings → 终端式输入 (Terminal-style Input)** (stored in browser localStorage, effective immediately):

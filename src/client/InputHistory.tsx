@@ -45,6 +45,7 @@ import { getPrefs } from './prefs.ts'
 import {
   flashCopied, hideSearchOverlay, hideSelectionToolbar, showSearchOverlay, showSelectionToolbar,
 } from './feedback.ts'
+import { ChatToc } from './ChatToc.tsx'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
 export type InputHistoryProps = PropsRuntime<'conversation.input.right'>
@@ -557,5 +558,5 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     }
   }, [])
 
-  return null
+  return <ChatToc nodes={nodes} />
 }

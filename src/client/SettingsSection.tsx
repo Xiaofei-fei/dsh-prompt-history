@@ -8,23 +8,11 @@
 import { useSyncExternalStore } from 'react'
 import { getPrefs, setPref, subscribePrefs, type CopyMode } from './prefs.ts'
 
-/** Copy-mode options in display order. */
-const COPY_MODES: ReadonlyArray<{ value: CopyMode; label: string; hint: string }> = [
-  {
-    value: 'toolbar',
-    label: '工具栏复制（推荐）',
-    hint: '选中文字后出现「复制」按钮，点击才复制——不污染剪贴板历史',
-  },
-  {
-    value: 'auto',
-    label: '选中即自动复制',
-    hint: '选中即写入系统剪贴板（终端风格，会刷屏 Win+V 历史，慎用）',
-  },
-  {
-    value: 'off',
-    label: '关闭复制',
-    hint: '选中不做任何事',
-  },
+/** Copy-mode options in display order (concise labels, no hint clutter). */
+const COPY_MODES: ReadonlyArray<{ value: CopyMode; label: string }> = [
+  { value: 'toolbar', label: '工具栏复制（推荐）' },
+  { value: 'auto', label: '选中即自动复制' },
+  { value: 'off', label: '关闭复制' },
 ]
 
 /** Section entry component: the copy-mode radio group plus the paste toggle. */
@@ -43,10 +31,7 @@ export function SettingsSection(): JSX.Element {
             checked={prefs.copyMode === mode.value}
             onChange={() => { setPref('copyMode', mode.value) }}
           />
-          <span>
-            <b>{mode.label}</b>
-            <span className="dsh-ph-hint"> — {mode.hint}</span>
-          </span>
+          <span>{mode.label}</span>
         </label>
       ))}
 
@@ -59,7 +44,7 @@ export function SettingsSection(): JSX.Element {
         <span>右键直接粘贴：输入框上右键即粘贴剪贴板内容（终端风格，不弹菜单）</span>
       </label>
 
-      <p className="dsh-ph-note">历史（↑/↓）始终开启，不随以上开关变化。设置存于浏览器本地，修改立即生效。</p>
+      <p className="dsh-ph-note">历史（↑/↓、前缀搜索、Ctrl+R）始终开启。设置存于浏览器本地，修改立即生效。</p>
     </div>
   )
 }
