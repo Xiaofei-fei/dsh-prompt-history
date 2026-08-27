@@ -22,10 +22,17 @@ export interface PluginPrefs {
   rightClickPaste: boolean
   /** Keep one global prompt-history ring across sessions (localStorage). */
   globalHistory: boolean
+  /** Show the draggable Chat TOC grip on the chat's left edge. */
+  tocVisible: boolean
 }
 
 const STORAGE_KEY = 'dsh-prompt-history.prefs'
-const DEFAULTS: PluginPrefs = { copyMode: 'toolbar', rightClickPaste: true, globalHistory: false }
+const DEFAULTS: PluginPrefs = {
+  copyMode: 'toolbar',
+  rightClickPaste: true,
+  globalHistory: false,
+  tocVisible: true,
+}
 
 /** Current prefs; replaced on every setPref (stable snapshot identity). */
 let prefs: PluginPrefs = load()
@@ -50,6 +57,7 @@ function load(): PluginPrefs {
       copyMode,
       rightClickPaste: typeof parsed.rightClickPaste === 'boolean' ? parsed.rightClickPaste : DEFAULTS.rightClickPaste,
       globalHistory: typeof parsed.globalHistory === 'boolean' ? parsed.globalHistory : DEFAULTS.globalHistory,
+      tocVisible: typeof parsed.tocVisible === 'boolean' ? parsed.tocVisible : DEFAULTS.tocVisible,
     }
   } catch {
     return fallback()

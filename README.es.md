@@ -40,7 +40,7 @@
    - **Apagado**: las selecciones quedan intactas.
 5. **Clic derecho pega directamente** — un clic derecho sobre el compositor pega el portapapeles — sin menú contextual, como en una terminal Linux. El pegado usa la misma canalización que Ctrl+V (las imágenes y las chips de referencia se comportan igual), con respaldo de Clipboard API cuando la ruta execCommand está bloqueada.
 6. **Historial entre sesiones** (interruptor en Ajustes, apagado por defecto) — mantiene el historial de ↑/↓ entre sesiones, almacenado en localStorage (límite 200), sobrevive a recargas y cambios de sesión.
-7. **TOC del chat (índice de la conversación)** — cuando la conversación se hace larga, una pequeña manija semitransparente y arrastrable en el borde izquierdo del chat (se ilumina al pasar el cursor) despliega un índice de cada mensaje de usuario en orden — haz clic en cualquier entrada para saltar a ese punto; haz clic fuera o pulsa Esc para cerrar.
+7. **TOC del chat (índice de la conversación)** — cuando la conversación se hace larga, una pequeña manija semitransparente y arrastrable en el borde izquierdo del chat (se ilumina al pasar el cursor) despliega un índice de cada mensaje de usuario en orden — haz clic en cualquier entrada para saltar a ese punto; haz clic fuera o pulsa Esc para cerrar. Se puede desactivar en Ajustes.
 
 Comportamiento de UI puro: sin eventos de sesión, sin cambios en el bucle del agente, sin peticiones al modelo. El texto recuperado o citado solo entra en el borrador normal del compositor — llega al modelo solo si *tú* pulsas Enter.
 
@@ -67,6 +67,7 @@ Abre **Ajustes → `>_ Terminal Input`** (almacenado en localStorage del navegad
 |---|---|---|
 | Modo de copia (al seleccionar) | `Barra de herramientas` | `Barra` (recomendado; escribe en el portapapeles solo al hacer clic) / `Copiar automático al seleccionar` (estilo terminal) / `Apagado` |
 | Historial entre sesiones | Apagado | El historial de ↑/↓ persiste entre sesiones en localStorage (límite 200) |
+| TOC del chat | Activado | Mostrar la manija arrastrable en el borde izquierdo del chat; se puede desactivar |
 | Pegar con clic derecho | Activado | Apagado restaura el menú contextual nativo del navegador |
 
 El historial de ↑/↓ siempre está activo, independientemente de estos interruptores.

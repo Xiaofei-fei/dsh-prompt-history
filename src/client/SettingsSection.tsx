@@ -55,6 +55,15 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
         <span>{t('history.global')}</span>
       </label>
 
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.tocVisible}
+          onChange={(e) => { setPref('tocVisible', e.target.checked) }}
+        />
+        <span>{t('toc.toggle')}</span>
+      </label>
+
       <p className="dsh-ph-note">{t('settings.note')}</p>
     </div>
   )

@@ -33,7 +33,7 @@
  * (Shift+Up still extends selection), no IME composition, machine not
  * adjudicating/submitting, session not removed.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ui-conversation SlotMap merge (the input.right entry) and the
 // session standard kit members (useInput/inputActions).
@@ -41,7 +41,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the runtime SessionStandardProps merge (useSession/sessionId) and
 // the conversation node union.
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { getPrefs } from './prefs.ts'
+import { getPrefs, subscribePrefs } from './prefs.ts'
 import {
   flashCopied, hideSearchOverlay, hideSelectionToolbar, showSearchOverlay, showSelectionToolbar,
 } from './feedback.ts'
@@ -616,5 +616,5 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     }
   }, [])
 
-  return <ChatToc nodes={nodes} />
+  return useSyncExternalStore(subscribePrefs, getPrefs).tocVisible ? <ChatToc nodes={nodes} /> : null
 }
