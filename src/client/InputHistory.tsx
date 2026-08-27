@@ -330,22 +330,13 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
         if (sel !== null && !sel.isCollapsed) text = sel.toString()
       }
       if (text.trim() === '') return
-      // A text-art card around the quote (every line keeps the '> ' prefix so
-      // markdown renders the whole block as one blockquote when sent): the box
-      // borders visually separate the quoted content from the user's own text,
-      // which the input's plain-textarea cannot do with real styling. The box
-      // width follows the longest content line.
-      const lines = text.replace(/\n+$/, '').split('\n')
-      const inner = Math.max(6, ...lines.map((l) => l.length))
-      const bar = '─'.repeat(inner + 4)
-      const quoted = [
-        `> ┌─ 引用 ${'─'.repeat(Math.max(2, inner - 4))}`,
-        ...lines.map((l) => `> │ ${l}`),
-        `> └${bar}`,
-      ].join('\n')
+      // A plain markdown blockquote (each line prefixed with '> '), matching
+      // how other DSH quote plugins format it — minimal and clean in the
+      // input, rendered as a proper blockquote when sent.
+      const quoted = '> ' + text.replace(/\n/g, '\n> ')
       const draft = live.draft
       const caret = textareaFocused ? (textarea.selectionStart ?? draft.length) : draft.length
-      // A blank line before the card separates it from prior text; a SINGLE
+      // A blank line before the quote separates it from prior text; a SINGLE
       // newline after lets the next input start on the line right below it.
       const lead = caret > 0 && draft[caret - 1] !== '\n' ? '\n\n' : caret > 0 ? '\n' : ''
       const tail = '\n'
