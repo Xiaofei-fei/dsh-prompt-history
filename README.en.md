@@ -34,10 +34,9 @@
 1. **Shell-style arrow recall** — with an empty draft, **Up** recalls the most recently sent message (newest first); **with a typed prefix, Up jumps to the most recent message starting with that prefix** (bash `history-search-backward`), keep pressing Up to walk further back through matches; **Down** walks forward (including forward through prefix matches) and, at the bottom edge, **restores the line you were typing before browsing began** (readline pending-line behavior).
 2. **Edit exits browsing** — editing the draft while browsing drops back to the live line.
 3. **Ctrl+R reverse search** — incremental search over history with live matching (bash-style `(reverse-i-search)`query`` overlay); Ctrl+R again steps to the older match; Enter accepts, Escape cancels and restores the previous draft.
-4. **Copy + quote + code (three modes, in Settings)** — any non-empty selection in the page — the composer textarea, chat messages, code blocks — is handled per the chosen mode:
-   - **Toolbar** (default): Copy / Quote / Code buttons appear above the selection — copy writes the clipboard only on click (no Win+V flooding); **Quote** inserts the FULL selected text as a clean `>`-prefixed markdown blockquote into the composer (rendered as a blockquote when sent); **Code** copies the selection wrapped in a ``` fenced code block (Codex style).
+4. **Copy + quote (two modes, in Settings)** — any non-empty selection in the page — the composer textarea, chat messages, code blocks — is handled per the chosen mode:
+   - **Toolbar** (default): Copy / Quote buttons appear above the selection — copy writes the clipboard only on click (no Win+V flooding); **Quote** inserts the FULL selected text as a clean `>`-prefixed markdown blockquote into the composer (rendered as a blockquote when sent).
    - **Auto** (terminal-style): copies the selection straight to the system clipboard on select.
-   - **Off**: selections are left untouched.
 5. **Right-click pastes directly** — a right-click on the composer pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a Clipboard API fallback when the execCommand path is blocked.
 6. **Cross-session history** (Settings toggle, default off) — keeps Up/Down history across sessions, stored in browser localStorage (cap 200), survives reloads and session switches.
 7. **Chat TOC (conversation directory)** — when the conversation gets long, a subtle semi-transparent, draggable grip on the chat's left edge (brightens on hover) expands a directory of every user message in order — click any entry to jump to that spot; click outside or press Esc to close. Can be toggled off in Settings.
@@ -65,7 +64,7 @@ Open **Settings → `>_ Terminal Input`** (stored in browser localStorage, effec
 
 | Option | Default | Meaning |
 |---|---|---|
-| Copy mode (on selection) | `Toolbar copy` | `Toolbar` (recommended; writes the clipboard only on click) / `Auto copy on select` (terminal-style) / `Off` |
+| Copy mode (on selection) | `Toolbar copy` | `Toolbar` (recommended; writes the clipboard only on click) / `Auto copy on select` (terminal-style) |
 | Cross-session history | Off | Up/Down history persists across sessions in browser localStorage (cap 200) |
 | Chat TOC | On | Show the draggable grip on the chat left edge; can be turned off |
 | Right-click paste | On | Off restores the browser's native context menu |

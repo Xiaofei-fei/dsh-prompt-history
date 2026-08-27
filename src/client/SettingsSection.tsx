@@ -14,7 +14,6 @@ import type { PromptHistoryKey } from './locales.ts'
 const COPY_MODES: ReadonlyArray<{ value: CopyMode; label: PromptHistoryKey }> = [
   { value: 'toolbar', label: 'copyMode.toolbar' },
   { value: 'auto', label: 'copyMode.auto' },
-  { value: 'off', label: 'copyMode.off' },
 ]
 
 /** Section entry component: the copy-mode radio group plus the paste toggle. */

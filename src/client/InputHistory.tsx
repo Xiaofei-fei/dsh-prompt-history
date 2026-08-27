@@ -45,6 +45,7 @@ import { getPrefs, subscribePrefs } from './prefs.ts'
 import {
   flashCopied, hideSearchOverlay, hideSelectionToolbar, showSearchOverlay, showSelectionToolbar,
 } from './feedback.ts'
+import { T } from './i18n.ts'
 import { ChatToc } from './ChatToc.tsx'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
@@ -405,11 +406,11 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
   }, [])
 
-  // Selection-driven copy, three modes (Settings → 终端式输入): 'auto' copies
+  // Selection-driven copy, two modes (Settings → 终端式输入): 'auto' copies
   // any stable non-empty selection directly (terminal-style, floods the system
   // clipboard — opt-in); 'toolbar' (default) shows an explicit 复制 button
   // above the selection and copies only when clicked (nothing writes the
-  // clipboard on its own); 'off' does nothing. Both active modes apply
+  // clipboard on its own). Both modes apply
   // anywhere in the page — the composer textarea (chip-aware via the
   // composer's own copy handler), chat messages, code blocks. A stable-window
   // debounce keeps mid-drag partial selections out; the toolbar is dismissed
@@ -526,30 +527,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
         textarea.focus({ preventScroll: true })
         textarea.setSelectionRange(pos, pos)
       })
-      flashCopied(null, '已引用')
-    }
-
-    // 代码: copy the selected text wrapped in a fenced code block (``` ... ```),
-    // the Codex-style "copy as code" action.
-    const codeSelection = (): void => {
-      const live = liveRef.current
-      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
-      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
-      if (textarea === null) return
-      const textareaFocused = document.activeElement === textarea
-      let text = ''
-      if (textareaFocused && (textarea.selectionStart ?? 0) < (textarea.selectionEnd ?? 0)) {
-        text = textarea.value.slice(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0)
-      } else {
-        const sel = document.getSelection()
-        if (sel !== null && !sel.isCollapsed) text = sel.toString()
-      }
-      if (text.trim() === '') return
-      const code = '```\n' + text.replace(/\n+$/, '') + '\n```'
-      navigator.clipboard.writeText(code).then(
-        () => { flashCopied(null, '已复制代码块') },
-        (error) => { console.warn('[dsh-prompt-history] clipboard copy failed:', error) },
-      )
+      flashCopied(null, T('pill.quoted'))
     }
 
     const onSelectionChange = (): void => {
@@ -559,10 +537,6 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
         return
       }
       const mode = getPrefs().copyMode
-      if (mode === 'off') {
-        hideSelectionToolbar()
-        return
-      }
       const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
       const taActive = textarea !== null
         && (document.activeElement === textarea || dragStartedInTextarea)
@@ -580,7 +554,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
           copySelection()
         } else {
           const rect = selectionRect()
-          if (rect !== null) showSelectionToolbar(rect, quoteSelection, codeSelection)
+          if (rect !== null) showSelectionToolbar(rect, quoteSelection)
         }
       }, 150)
     }
@@ -603,7 +577,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', hideSelectionToolbar)
-    console.info('[dsh-prompt-history] copy modes active (toolbar/auto/off)')
+    console.info('[dsh-prompt-history] copy modes active (toolbar/auto)')
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange)
       document.removeEventListener('mousedown', onMouseDown, true)

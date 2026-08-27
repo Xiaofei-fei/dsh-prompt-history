@@ -7,7 +7,7 @@
  */
 
 /** Copy behavior on text selection. */
-export type CopyMode = 'toolbar' | 'auto' | 'off'
+export type CopyMode = 'toolbar' | 'auto'
 
 /** The user-facing settings of this plugin. */
 export interface PluginPrefs {
@@ -15,7 +15,7 @@ export interface PluginPrefs {
    * How a selection copies: 'toolbar' shows an explicit copy button above the
    * selection (the safe default — nothing writes the system clipboard until
    * the user clicks); 'auto' copies the selection directly (terminal-style,
-   * floods clipboard history); 'off' does nothing.
+   * floods clipboard history).
    */
   copyMode: CopyMode
   /** Right-click on the composer textarea pastes the clipboard directly. */
@@ -45,14 +45,16 @@ function load(): PluginPrefs {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw === null) return fallback()
     const parsed = JSON.parse(raw) as Partial<PluginPrefs> & { copyOnSelect?: boolean }
-    // Legacy migration: the old copyOnSelect boolean maps onto the mode.
-    const copyMode: CopyMode = (parsed as { copyMode?: unknown }).copyMode === 'auto'
-      || (parsed as { copyMode?: unknown }).copyMode === 'toolbar'
-      || (parsed as { copyMode?: unknown }).copyMode === 'off'
-      ? (parsed as { copyMode: CopyMode }).copyMode
-      : typeof parsed.copyOnSelect === 'boolean'
-        ? (parsed.copyOnSelect ? 'auto' : 'off')
-        : DEFAULTS.copyMode
+    // Legacy migration: the old copyOnSelect boolean maps onto the mode; the
+    // retired 'off' option normalizes back to the default 'toolbar'.
+    const rawMode = (parsed as { copyMode?: unknown }).copyMode
+    const copyMode: CopyMode = rawMode === 'auto'
+      ? 'auto'
+      : rawMode === 'toolbar'
+        ? 'toolbar'
+        : typeof parsed.copyOnSelect === 'boolean'
+          ? (parsed.copyOnSelect ? 'auto' : 'toolbar')
+          : DEFAULTS.copyMode
     return {
       copyMode,
       rightClickPaste: typeof parsed.rightClickPaste === 'boolean' ? parsed.rightClickPaste : DEFAULTS.rightClickPaste,

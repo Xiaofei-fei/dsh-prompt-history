@@ -34,10 +34,9 @@
 1. **Recuperación con flechas estilo shell** — con el borrador vacío, **↑** recupera el mensaje enviado más reciente (el más nuevo primero); **con un prefijo escrito, ↑ salta al mensaje más reciente que empiece con ese prefijo** (`history-search-backward` de bash); sigue pulsando ↑ para retroceder por las coincidencias; **↓** avanza (incluido el avance entre coincidencias de prefijo) y, al llegar al final, **restaura la línea que escribías antes de empezar a navegar** (comportamiento pending-line de readline).
 2. **Editar sale de la navegación** — editar el borrador mientras navegas vuelve a la línea en vivo.
 3. **Búsqueda inversa con Ctrl+R** — búsqueda incremental sobre el historial con coincidencia en vivo (superposición estilo bash `(reverse-i-search)`consulta``); Ctrl+R de nuevo va a la coincidencia anterior; Enter acepta, Escape cancela y restaura el borrador previo.
-4. **Copiar + citar + código (tres modos, en Ajustes)** — cualquier selección no vacía de la página — el área de texto del compositor, mensajes del chat, bloques de código — se maneja según el modo elegido:
-   - **Barra de herramientas** (predeterminado): aparecen botones Copiar / Citar / Código sobre la selección — copiar escribe en el portapapeles solo al hacer clic (sin inundar Win+V); **Citar** inserta el TEXTO COMPLETO seleccionado como un bloque de cita limpio con prefijo `>` en el compositor (se renderiza como cita al enviar); **Código** copia la selección envuelta en un bloque de código con ``` (estilo Codex).
+4. **Copiar + citar (dos modos, en Ajustes)** — cualquier selección no vacía de la página — el área de texto del compositor, mensajes del chat, bloques de código — se maneja según el modo elegido:
+   - **Barra de herramientas** (predeterminado): aparecen botones Copiar / Citar sobre la selección — copiar escribe en el portapapeles solo al hacer clic (sin inundar Win+V); **Citar** inserta el TEXTO COMPLETO seleccionado como un bloque de cita limpio con prefijo `>` en el compositor (se renderiza como cita al enviar).
    - **Auto** (estilo terminal): copia la selección directamente al portapapeles del sistema al seleccionar.
-   - **Apagado**: las selecciones quedan intactas.
 5. **Clic derecho pega directamente** — un clic derecho sobre el compositor pega el portapapeles — sin menú contextual, como en una terminal Linux. El pegado usa la misma canalización que Ctrl+V (las imágenes y las chips de referencia se comportan igual), con respaldo de Clipboard API cuando la ruta execCommand está bloqueada.
 6. **Historial entre sesiones** (interruptor en Ajustes, apagado por defecto) — mantiene el historial de ↑/↓ entre sesiones, almacenado en localStorage (límite 200), sobrevive a recargas y cambios de sesión.
 7. **TOC del chat (índice de la conversación)** — cuando la conversación se hace larga, una pequeña manija semitransparente y arrastrable en el borde izquierdo del chat (se ilumina al pasar el cursor) despliega un índice de cada mensaje de usuario en orden — haz clic en cualquier entrada para saltar a ese punto; haz clic fuera o pulsa Esc para cerrar. Se puede desactivar en Ajustes.
@@ -65,7 +64,7 @@ Abre **Ajustes → `>_ Terminal Input`** (almacenado en localStorage del navegad
 
 | Opción | Predeterminado | Significado |
 |---|---|---|
-| Modo de copia (al seleccionar) | `Barra de herramientas` | `Barra` (recomendado; escribe en el portapapeles solo al hacer clic) / `Copiar automático al seleccionar` (estilo terminal) / `Apagado` |
+| Modo de copia (al seleccionar) | `Barra de herramientas` | `Barra` (recomendado; escribe en el portapapeles solo al hacer clic) / `Copiar automático al seleccionar` (estilo terminal) |
 | Historial entre sesiones | Apagado | El historial de ↑/↓ persiste entre sesiones en localStorage (límite 200) |
 | TOC del chat | Activado | Mostrar la manija arrastrable en el borde izquierdo del chat; se puede desactivar |
 | Pegar con clic derecho | Activado | Apagado restaura el menú contextual nativo del navegador |

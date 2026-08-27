@@ -34,10 +34,9 @@
 1. **Recuperação com setas estilo shell** — com o rascunho vazio, **↑** recupera a mensagem enviada mais recente (a mais nova primeiro); **com um prefixo digitado, ↑ salta para a mensagem mais recente que começa com esse prefixo** (`history-search-backward` do bash); continue pressionando ↑ para voltar pelas correspondências; **↓** avança (inclusive pelas correspondências de prefixo) e, na borda inferior, **restaura a linha que você digitava antes de começar a navegar** (comportamento pending-line do readline).
 2. **Editar sai da navegação** — editar o rascunho durante a navegação volta para a linha ativa.
 3. **Busca reversa com Ctrl+R** — busca incremental no histórico com correspondência em tempo real (overlay estilo bash `(reverse-i-search)`consulta``); Ctrl+R novamente vai para a correspondência mais antiga; Enter aceita, Escape cancela e restaura o rascunho anterior.
-4. **Copiar + citar + código (três modos, em Configurações)** — qualquer seleção não vazia na página — o campo do compositor, mensagens do chat, blocos de código — é tratada conforme o modo escolhido:
-   - **Barra de ferramentas** (padrão): botões Copiar / Citar / Código aparecem acima da seleção — copiar grava na área de transferência apenas ao clicar (sem inundar o Win+V); **Citar** insere o TEXTO COMPLETO selecionado como um blockquote markdown limpo com prefixo `>` no compositor (renderizado como citação ao enviar); **Código** copia a seleção envolvida em um bloco de código com ``` (estilo Codex).
+4. **Copiar + citar (dois modos, em Configurações)** — qualquer seleção não vazia na página — o campo do compositor, mensagens do chat, blocos de código — é tratada conforme o modo escolhido:
+   - **Barra de ferramentas** (padrão): botões Copiar / Citar aparecem acima da seleção — copiar grava na área de transferência apenas ao clicar (sem inundar o Win+V); **Citar** insere o TEXTO COMPLETO selecionado como um blockquote markdown limpo com prefixo `>` no compositor (renderizado como citação ao enviar).
    - **Auto** (estilo terminal): copia a seleção direto para a área de transferência do sistema ao selecionar.
-   - **Desligado**: seleções ficam intactas.
 5. **Botão direito cola diretamente** — um clique com o botão direito no compositor cola a área de transferência — sem menu de contexto, como num terminal Linux. A colagem usa o mesmo pipeline do Ctrl+V (imagens e chips de referência se comportam igual), com fallback da Clipboard API quando o caminho execCommand está bloqueado.
 6. **Histórico entre sessões** (alternância em Configurações, desligado por padrão) — mantém o histórico de ↑/↓ entre sessões, armazenado em localStorage do navegador (limite 200), sobrevive a recarregamentos e trocas de sessão.
 7. **TOC do chat (índice da conversa)** — quando a conversa fica longa, uma alça sutil, semitransparente e arrastável na borda esquerda do chat (acende no hover) expande um índice de cada mensagem de usuário em ordem — clique em qualquer item para saltar para aquele ponto; clique fora ou pressione Esc para fechar. Pode ser desativado nas Configurações.
@@ -65,7 +64,7 @@ Abra **Configurações → `>_ Terminal Input`** (armazenado em localStorage do 
 
 | Opção | Padrão | Significado |
 |---|---|---|
-| Modo de cópia (ao selecionar) | `Barra de ferramentas` | `Barra` (recomendado; grava na área de transferência só ao clicar) / `Copiar automaticamente ao selecionar` (estilo terminal) / `Desligado` |
+| Modo de cópia (ao selecionar) | `Barra de ferramentas` | `Barra` (recomendado; grava na área de transferência só ao clicar) / `Copiar automaticamente ao selecionar` (estilo terminal) |
 | Histórico entre sessões | Desligado | O histórico de ↑/↓ persiste entre sessões em localStorage (limite 200) |
 | TOC do chat | Ligado | Mostrar a alça arrastável na borda esquerda do chat; pode ser desativado |
 | Colar com botão direito | Ligado | Desligado restaura o menu de contexto nativo do navegador |
