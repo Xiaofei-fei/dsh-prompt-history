@@ -41,24 +41,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the runtime SessionStandardProps merge (useSession/sessionId) and
 // the conversation node union.
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ReferenceInsert, TokenSpan } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { getPrefs } from './prefs.ts'
 import { flashCopied, hideSelectionToolbar, showSelectionToolbar } from './feedback.ts'
-import { nextQuoteRef, storeQuoteText } from './quote-source.ts'
 
-/** Inject face supplied by the plugin apply: the quote-chip insertion verb. */
-export interface InputHistoryInjected {
-  /**
-   * Insert one reference chip into the session composer draft.
-   * @param reference - the chip material (source/ref/label/clipboardText).
-   * @param span - draft span at the caret (draftRev CAS).
-   * @returns whether the input machine accepted the insertion.
-   */
-  insertQuoteRef: (reference: ReferenceInsert, span: TokenSpan) => boolean
-}
-
-/** Full props of the input-history entry: framework standard kit + owner share + inject face. */
-export type InputHistoryProps = PropsRuntime<'conversation.input.right'> & InputHistoryInjected
+/** Full props of the input-history entry: framework standard kit + owner share. */
+export type InputHistoryProps = PropsRuntime<'conversation.input.right'>
 
 /** One browse-position snapshot; index -1 = showing the live draft (not browsing). */
 interface BrowseState {
@@ -94,11 +81,10 @@ function promptText(node: ConversationNode): string | null {
  * @param props - framework standard kit (useInput/useSession/inputActions/sessionId).
  * @returns null (the entry is invisible chrome).
  */
-export function InputHistory({ useInput, useSession, inputActions, sessionId, insertQuoteRef }: InputHistoryProps) {
+export function InputHistory({ useInput, useSession, inputActions, sessionId }: InputHistoryProps) {
   // Latest machine/session facts at event time (the listeners mount once).
   const draft = useInput(s => s.draft)
   const phase = useInput(s => s.phase)
-  const draftRev = useInput(s => s.draftRev)
   const nodes = useSession(s => s.nodes)
   const removed = useSession(s => s.removed) ?? false
 
@@ -107,8 +93,8 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId, in
   /** User-node seqs already folded into historyRef (append-once dedup). */
   const seenRef = useRef<Set<number>>(new Set())
   const browseRef = useRef<BrowseState>(RESET_BROWSE)
-  const liveRef = useRef({ draft, phase, draftRev, removed, inputActions })
-  liveRef.current = { draft, phase, draftRev, removed, inputActions }
+  const liveRef = useRef({ draft, phase, removed, inputActions })
+  liveRef.current = { draft, phase, removed, inputActions }
 
   // Session switch: start a fresh history, seen set, and browse position.
   useEffect(() => {
@@ -325,14 +311,11 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId, in
         target instanceof HTMLTextAreaElement && target.closest(COMPOSER_CARD) !== null
     }
 
-    // 引用: insert the selected text into the composer as a markdown quote
-    // (each line prefixed with '> ', Codex-style), at the caret when the
-    // textarea is focused, otherwise appended at the end of the draft.
-    // 引用: insert the selected text into the composer. Preferred path inserts
-    // a real reference CHIP (clearly distinct in the input, Codex-style) that
-    // expands to a '>' blockquote on send; a trailing newline after the chip
-    // keeps the user's next input on a fresh line. Falls back to inserting the
-    // quoted text directly when the chip path is unavailable.
+    // 引用: insert the FULL selected text into the composer as a markdown
+    // quote block (each line prefixed with '> ', Codex-style) — everything is
+    // visible and editable in the input. A blank line before (unless the draft
+    // starts there) and a blank line after keep the quote distinct from the
+    // user's own next input, which begins on a fresh line after the caret.
     const quoteSelection = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
@@ -350,37 +333,18 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId, in
       const quoted = '> ' + text.replace(/\n/g, '\n> ')
       const draft = live.draft
       const caret = textareaFocused ? (textarea.selectionStart ?? draft.length) : draft.length
-      const focusAfter = (pos: number): void => {
-        requestAnimationFrame(() => {
-          textarea.focus({ preventScroll: true })
-          textarea.setSelectionRange(pos, pos)
-        })
-      }
-      // Preferred: a reference chip with its expansion text cached for submit.
-      const ref = nextQuoteRef()
-      storeQuoteText(ref, quoted)
-      // The label carries the FULL quoted text — the one-cell chip clips it
-      // visually, but the chip's hover tooltip and the preview strip below the
-      // composer both show everything.
-      const preview = quoted
-      const inserted = insertQuoteRef(
-        { source: 'quote', ref, label: `引用：${preview}`, clipboardText: quoted },
-        { start: caret, end: caret, draftRev: live.draftRev },
-      )
-      if (inserted) {
-        // The chip occupies one U+FFFC; a newline after it puts the user's next
-        // input on a fresh line (the machine diff keeps the occurrence offset).
-        const withNl = draft.slice(0, caret) + '\uFFFC' + '\n' + draft.slice(caret)
-        live.inputActions.setDraft(withNl)
-        focusAfter(caret + 2)
-        flashCopied(null, '已引用')
-        return
-      }
-      // Fallback: insert the quoted text directly at the caret.
-      const prefix = caret > 0 && draft[caret - 1] !== '\n' ? '\n' : ''
-      const next = draft.slice(0, caret) + prefix + quoted + draft.slice(caret)
+      // Separation: a blank line before the quote block (or just one newline
+      // when a blank line already exists there), and a blank line after it so
+      // the next input starts on its own line.
+      const lead = caret > 0 && draft[caret - 1] !== '\n' ? '\n\n' : caret > 0 ? '\n' : ''
+      const tail = '\n\n'
+      const next = draft.slice(0, caret) + lead + quoted + tail + draft.slice(caret)
       live.inputActions.setDraft(next)
-      focusAfter(caret + prefix.length + quoted.length)
+      const pos = caret + lead.length + quoted.length + tail.length
+      requestAnimationFrame(() => {
+        textarea.focus({ preventScroll: true })
+        textarea.setSelectionRange(pos, pos)
+      })
       flashCopied(null, '已引用')
     }
 
