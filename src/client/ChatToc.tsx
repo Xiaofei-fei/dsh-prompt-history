@@ -6,6 +6,7 @@
  * viewport-relative, and lives off the conversation snapshot's user nodes.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -61,7 +62,23 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     return () => { window.removeEventListener('resize', measure) }
   }, [measure])
 
-  // Close on outside pointer-down and Escape.
+  // Draggable grip: mousedown starts a drag, mousemove moves it (clamped to
+  // the viewport), mouseup persists the position in localStorage so it stays
+  // where the user put it across reloads. The panel opens beside the current
+  // grip position instead of the scrollport edge.
+  const POS_KEY = 'dsh-prompt-history.tocPos'
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; baseLeft: number; baseTop: number } | null>(null)
+  const movedRef = useRef(false)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(POS_KEY)
+      if (raw !== null) setPos(JSON.parse(raw) as { left: number; top: number })
+    } catch { /* corrupt saved position: fall back to the default */ }
+  }, [])
+
+  // Close on outside pointer-down and Escape (the panel).
   useEffect(() => {
     if (!open) return
     const onPointerDown = (e: PointerEvent): void => {
@@ -79,6 +96,38 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     }
   }, [open])
 
+  const startDrag = (e: ReactMouseEvent): void => {
+    e.preventDefault() // no text selection while dragging
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseLeft: pos?.left ?? origin.left + 6, baseTop: pos?.top ?? gripY() - 26 }
+    movedRef.current = false
+  }
+  const gripY = (): number => Math.round((origin.top + origin.bottom) / 2)
+  const onDragMove = useCallback((e: MouseEvent): void => {
+    const drag = dragRef.current
+    if (drag === null) return
+    if (Math.abs(e.clientX - drag.startX) > 4 || Math.abs(e.clientY - drag.startY) > 4) movedRef.current = true
+    const left = Math.min(Math.max(4, drag.baseLeft + e.clientX - drag.startX), window.innerWidth - 24)
+    const top = Math.min(Math.max(4, drag.baseTop + e.clientY - drag.startY), window.innerHeight - 56)
+    setPos({ left, top })
+  }, [])
+  const endDrag = useCallback((): void => {
+    if (dragRef.current === null) return
+    dragRef.current = null
+    try {
+      const current = pos
+      if (current !== null) localStorage.setItem(POS_KEY, JSON.stringify(current))
+    } catch { /* storage unavailable */ }
+  }, [pos])
+
+  useEffect(() => {
+    window.addEventListener('mousemove', onDragMove)
+    window.addEventListener('mouseup', endDrag)
+    return () => {
+      window.removeEventListener('mousemove', onDragMove)
+      window.removeEventListener('mouseup', endDrag)
+    }
+  }, [onDragMove, endDrag])
+
   // Scroll the conversation to the first anchor row containing the entry text,
   // walking from the previous entry's row so repeated prompts land in order.
   const lastRowRef = useRef(0)
@@ -94,16 +143,22 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     setOpen(false)
   }
 
-  const gripY = Math.round((origin.top + origin.bottom) / 2)
+  const gripLeft = pos?.left ?? origin.left + 6
+  const gripTop = pos?.top ?? gripY() - 26
   return createPortal(
     <>
       <button
         type="button"
         className="dsh-ph-toc-grip"
-        aria-label="会话目录"
-        title="会话目录"
-        onClick={() => { measure(); setOpen((v) => !v) }}
-        style={{ top: gripY - 26, left: origin.left + 6 }}
+        aria-label="会话目录（可拖动）"
+        title="会话目录（可拖动）"
+        onClick={() => {
+          if (movedRef.current) { movedRef.current = false; return } // a drag is not a click
+          measure()
+          setOpen((v) => !v)
+        }}
+        onMouseDown={startDrag}
+        style={{ top: gripTop, left: gripLeft, cursor: dragRef.current !== null ? 'grabbing' : 'grab' }}
       >
         ☰
       </button>
@@ -111,7 +166,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
         <div
           ref={panelRef}
           className="dsh-ph-toc"
-          style={{ top: origin.top + 8, left: origin.left + 30 }}
+          style={{ top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230) }}
         >
           <div className="dsh-ph-toc-title">会话目录</div>
           <div className="dsh-ph-toc-list">
