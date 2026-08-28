@@ -147,34 +147,30 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
   const gripLeft = pos?.left ?? origin.left + 6
   const gripTop = pos?.top ?? gripY() - 26
 
-  // The panel follows the grip and always fits the viewport. One edge is
-  // pinned to the grip (top edge below it, or bottom edge above it when the
-  // grip sits too low for a downward panel), and max-height caps the box to
-  // the free space on that side — so the directory is fully visible no matter
-  // where the grip was dragged (bottom edge included).
-  const [panelStyle, setPanelStyle] = useState<{ top?: number; bottom?: number; left: number; maxHeight: number } | null>(null)
+  // The panel is anchored to the grip like a context menu: it sits to the
+  // grip's right, vertically centered on it, and is clamped so the box always
+  // fits the viewport — dragging the grip to the bottom edge shifts the panel
+  // up just enough (never clipping the directory).
+  const [panelStyle, setPanelStyle] = useState<{ top: number; left: number; maxHeight: number } | null>(null)
   useLayoutEffect(() => {
     if (!open || entries.length === 0) return
     const panel = panelRef.current
     if (panel === null) return
     const gap = 8
-    const gripBottom = gripTop + 52 // grip height from .dsh-ph-toc-grip
-    const below = window.innerHeight - gripBottom - gap
-    const above = gripTop - gap
+    const gripRight = gripLeft + 20 // grip width from .dsh-ph-toc-grip
+    const gripCenterY = gripTop + 26 // grip height 52 → vertical center
     const natural = Math.min(panel.getBoundingClientRect().height, 480)
-    const side = Math.max(below, above)
-    const maxHeight = Math.max(8, Math.min(natural, side))
-    const left = Math.min(gripLeft + 30, window.innerWidth - 230)
-    const next = below >= above
-      ? { top: gripBottom + gap, left, maxHeight }
-      : { bottom: window.innerHeight - (gripTop - gap), left, maxHeight }
+    const maxHeight = Math.min(natural, window.innerHeight - 8)
+    const left = Math.max(4, Math.min(gripRight + gap, window.innerWidth - 230 - 4))
+    // Prefer centering on the grip; clamp so both edges stay inside the viewport.
+    const top = Math.max(4, Math.min(gripCenterY - maxHeight / 2, window.innerHeight - maxHeight - 4))
+    const next = { top, left, maxHeight }
     setPanelStyle((prev) => (
-      prev !== null && prev.top === next.top && prev.bottom === next.bottom
-        && prev.left === next.left && prev.maxHeight === next.maxHeight
+      prev !== null && prev.top === next.top && prev.left === next.left && prev.maxHeight === next.maxHeight
         ? prev
         : next
     ))
-  }, [open, entries.length, gripTop, gripLeft])
+  }, [open, entries.length, gripLeft, gripTop])
 
   return createPortal(
     <>
