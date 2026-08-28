@@ -39,7 +39,7 @@
    - **Auto** (terminal-style): copies the selection straight to the system clipboard on select.
 5. **Right-click pastes directly** — a right-click on the composer pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a Clipboard API fallback when the execCommand path is blocked.
 6. **Cross-session history** (Settings toggle, default off) — keeps Up/Down history across sessions, stored in browser localStorage (cap 200), survives reloads and session switches.
-7. **Chat TOC (conversation directory)** — when the conversation gets long, a subtle semi-transparent, draggable grip on the chat's left edge (brightens on hover) expands a directory of every user message in order — click any entry to jump to that spot; click outside or press Esc to close. Can be toggled off in Settings.
+7. **Chat TOC (conversation directory)** — when the conversation gets long, a subtle semi-transparent, draggable grip on the chat's left edge (brightens on hover) expands a directory of every user message in order — click any entry to jump to that spot, and scroll through all entries when the list gets long; click outside or press Esc to close. Can be toggled off in Settings.
 
 Pure UI behavior: no session events, no agent-loop changes, no model requests. Recalled or quoted text only enters the ordinary composer draft — it reaches the model only if *you* press Enter.
 

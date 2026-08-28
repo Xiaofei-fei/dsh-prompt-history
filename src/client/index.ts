@@ -33,7 +33,7 @@ const SETTINGS_CSS = [
   '.dsh-ph-toc-grip:hover{opacity:1;background:var(--dsw-alias-bg-layer-2);}',
   '.dsh-ph-toc{position:fixed;z-index:2147483000;width:220px;max-height:min(60vh,480px);display:flex;flex-direction:column;padding:8px;border-radius:12px;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);box-shadow:0 8px 28px rgba(0,0,0,.25);box-sizing:border-box;}',
   '.dsh-ph-toc-title{margin:0 4px 6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);}',
-  '.dsh-ph-toc-list{overflow-y:auto;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;}',
+  '.dsh-ph-toc-list{overflow-y:auto;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;min-height:0;flex:1 1 auto;overscroll-behavior:contain;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);}',
   '.dsh-ph-toc-item{display:block;width:100%;text-align:left;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.4;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;}',
   '.dsh-ph-toc-item:hover{background:var(--dsw-alias-bg-layer-2);}',
 ].join('')
@@ -47,7 +47,10 @@ const SETTINGS_CSS = [
  */
 export function apply(ctx: ClientContext): void {
   const style = document.createElement('style')
-  style.dataset.plugin = 'dsh-prompt-history'
+  // data-plugin-css (not data-plugin): the theme/skin system also tags style
+  // elements with the bundle's package name, so a query on data-plugin would
+  // be ambiguous.
+  style.dataset.pluginCss = 'dsh-ph-settings'
   style.textContent = SETTINGS_CSS
   document.head.appendChild(style)
 

@@ -39,7 +39,7 @@
    - **Auto** (estilo terminal): copia a seleção direto para a área de transferência do sistema ao selecionar.
 5. **Botão direito cola diretamente** — um clique com o botão direito no compositor cola a área de transferência — sem menu de contexto, como num terminal Linux. A colagem usa o mesmo pipeline do Ctrl+V (imagens e chips de referência se comportam igual), com fallback da Clipboard API quando o caminho execCommand está bloqueado.
 6. **Histórico entre sessões** (alternância em Configurações, desligado por padrão) — mantém o histórico de ↑/↓ entre sessões, armazenado em localStorage do navegador (limite 200), sobrevive a recarregamentos e trocas de sessão.
-7. **TOC do chat (índice da conversa)** — quando a conversa fica longa, uma alça sutil, semitransparente e arrastável na borda esquerda do chat (acende no hover) expande um índice de cada mensagem de usuário em ordem — clique em qualquer item para saltar para aquele ponto; clique fora ou pressione Esc para fechar. Pode ser desativado nas Configurações.
+7. **TOC do chat (índice da conversa)** — quando a conversa fica longa, uma alça sutil, semitransparente e arrastável na borda esquerda do chat (acende no hover) expande um índice de cada mensagem de usuário em ordem — clique em qualquer item para saltar para aquele ponto e role por todas as entradas quando a lista ficar longa; clique fora ou pressione Esc para fechar. Pode ser desativado nas Configurações.
 
 Comportamento puro de UI: sem eventos de sessão, sem mudanças no loop do agente, sem requisições ao modelo. O texto recuperado ou citado só entra no rascunho comum do compositor — chega ao modelo apenas se *você* pressionar Enter.
 

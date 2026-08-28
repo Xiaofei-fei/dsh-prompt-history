@@ -39,7 +39,7 @@
    - **Auto** (estilo terminal): copia la selección directamente al portapapeles del sistema al seleccionar.
 5. **Clic derecho pega directamente** — un clic derecho sobre el compositor pega el portapapeles — sin menú contextual, como en una terminal Linux. El pegado usa la misma canalización que Ctrl+V (las imágenes y las chips de referencia se comportan igual), con respaldo de Clipboard API cuando la ruta execCommand está bloqueada.
 6. **Historial entre sesiones** (interruptor en Ajustes, apagado por defecto) — mantiene el historial de ↑/↓ entre sesiones, almacenado en localStorage (límite 200), sobrevive a recargas y cambios de sesión.
-7. **TOC del chat (índice de la conversación)** — cuando la conversación se hace larga, una pequeña manija semitransparente y arrastrable en el borde izquierdo del chat (se ilumina al pasar el cursor) despliega un índice de cada mensaje de usuario en orden — haz clic en cualquier entrada para saltar a ese punto; haz clic fuera o pulsa Esc para cerrar. Se puede desactivar en Ajustes.
+7. **TOC del chat (índice de la conversación)** — cuando la conversación se hace larga, una pequeña manija semitransparente y arrastrable en el borde izquierdo del chat (se ilumina al pasar el cursor) despliega un índice de cada mensaje de usuario en orden — haz clic en cualquier entrada para saltar a ese punto y desplázate por todas las entradas cuando la lista es larga; haz clic fuera o pulsa Esc para cerrar. Se puede desactivar en Ajustes.
 
 Comportamiento de UI puro: sin eventos de sesión, sin cambios en el bucle del agente, sin peticiones al modelo. El texto recuperado o citado solo entra en el borrador normal del compositor — llega al modelo solo si *tú* pulsas Enter.
 
