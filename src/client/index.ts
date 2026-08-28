@@ -32,11 +32,13 @@ const SETTINGS_CSS = [
   '.dsh-ph-toc-grip{position:fixed;z-index:2147483000;width:20px;height:52px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-specific-menu);background:color-mix(in srgb,var(--dsw-specific-menu) 88%,#000);box-shadow:0 1px 4px rgba(0,0,0,.18);color:var(--dsw-alias-label-primary);font-size:14px;line-height:1;cursor:pointer;opacity:.65;transition:opacity .15s;display:flex;align-items:center;justify-content:center;padding:0;}',
   '.dsh-ph-toc-grip:hover{opacity:1;background:var(--dsw-alias-bg-layer-2);}',
   '.dsh-ph-toc{position:fixed;z-index:2147483000;width:300px;max-height:min(60vh,480px);display:flex;flex-direction:column;padding:8px;border-radius:12px;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);box-shadow:0 8px 28px rgba(0,0,0,.25);box-sizing:border-box;}',
-  '.dsh-ph-toc-title{margin:0 4px 6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);}',
-  '.dsh-ph-toc-list{overflow-y:auto;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;min-height:0;flex:1 1 auto;overscroll-behavior:contain;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);}',
-  // Entries clamp to two lines so a long prompt stays readable (single-line
-  // ellipsis at 220px showed only ~13 chars and was unreadable).
-  '.dsh-ph-toc-item{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;width:100%;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5;cursor:pointer;overflow:hidden;white-space:normal;box-sizing:border-box;}',
+  '.dsh-ph-toc-title{margin:0 4px 6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);flex-shrink:0;}',
+  // Header-fixed / list-scrollable: the list is a flex child with min-height:0
+  // so it shrinks to the remaining panel height; each item is flex-shrink:0 so
+  // entries NEVER compress when the list overflows — the excess simply scrolls
+  // (overflow-y:auto), keeping every row's height, font and line-height intact.
+  '.dsh-ph-toc-list{overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:2px;box-sizing:border-box;min-height:0;flex:1 1 auto;overscroll-behavior:contain;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);}',
+  '.dsh-ph-toc-item{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;flex-shrink:0;width:100%;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5;cursor:pointer;overflow:hidden;white-space:normal;box-sizing:border-box;}',
   '.dsh-ph-toc-item:hover{background:var(--dsw-alias-bg-layer-2);}',
 ].join('')
 
