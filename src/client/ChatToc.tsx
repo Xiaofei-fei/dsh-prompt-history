@@ -161,7 +161,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     const gripCenterY = gripTop + 26 // grip height 52 → vertical center
     const natural = Math.min(panel.getBoundingClientRect().height, 480)
     const maxHeight = Math.min(natural, window.innerHeight - 8)
-    const left = Math.max(4, Math.min(gripRight + gap, window.innerWidth - 230 - 4))
+    const left = Math.max(4, Math.min(gripRight + gap, window.innerWidth - 308))
     // Prefer centering on the grip; clamp so both edges stay inside the viewport.
     const top = Math.max(4, Math.min(gripCenterY - maxHeight / 2, window.innerHeight - maxHeight - 4))
     const next = { top, left, maxHeight }
