@@ -5,7 +5,7 @@
  * message. Rendered via a portal to document.body so the fixed positioning is
  * viewport-relative, and lives off the conversation snapshot's user nodes.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
@@ -146,6 +146,36 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
 
   const gripLeft = pos?.left ?? origin.left + 6
   const gripTop = pos?.top ?? gripY() - 26
+
+  // The panel follows the grip and always fits the viewport. One edge is
+  // pinned to the grip (top edge below it, or bottom edge above it when the
+  // grip sits too low for a downward panel), and max-height caps the box to
+  // the free space on that side — so the directory is fully visible no matter
+  // where the grip was dragged (bottom edge included).
+  const [panelStyle, setPanelStyle] = useState<{ top?: number; bottom?: number; left: number; maxHeight: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!open || entries.length === 0) return
+    const panel = panelRef.current
+    if (panel === null) return
+    const gap = 8
+    const gripBottom = gripTop + 52 // grip height from .dsh-ph-toc-grip
+    const below = window.innerHeight - gripBottom - gap
+    const above = gripTop - gap
+    const natural = Math.min(panel.getBoundingClientRect().height, 480)
+    const side = Math.max(below, above)
+    const maxHeight = Math.max(8, Math.min(natural, side))
+    const left = Math.min(gripLeft + 30, window.innerWidth - 230)
+    const next = below >= above
+      ? { top: gripBottom + gap, left, maxHeight }
+      : { bottom: window.innerHeight - (gripTop - gap), left, maxHeight }
+    setPanelStyle((prev) => (
+      prev !== null && prev.top === next.top && prev.bottom === next.bottom
+        && prev.left === next.left && prev.maxHeight === next.maxHeight
+        ? prev
+        : next
+    ))
+  }, [open, entries.length, gripTop, gripLeft])
+
   return createPortal(
     <>
       <button
@@ -167,7 +197,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
         <div
           ref={panelRef}
           className="dsh-ph-toc"
-          style={{ top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230) }}
+          style={panelStyle ?? { top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230) }}
         >
           <div className="dsh-ph-toc-title">{T('toc.title')}</div>
           <div className="dsh-ph-toc-list">
