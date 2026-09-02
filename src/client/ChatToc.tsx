@@ -30,13 +30,24 @@ function entryText(node: ConversationNode): string | null {
 /** Full props: the conversation nodes to build the directory from. */
 export interface ChatTocProps {
   readonly nodes: readonly ConversationNode[]
+  /**
+   * Called when the directory opens: the parent widens the loaded history
+   * window (loadOlder pages) so the directory can list earlier messages too.
+   */
+  readonly onWiden?: () => void
 }
 
 /** The TOC grip + panel entry. */
-export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
+export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [origin, setOrigin] = useState({ left: 0, top: 0, bottom: 0 })
   const panelRef = useRef<HTMLDivElement | null>(null)
+
+  // Ask for the full history when the directory opens (and again each reopen).
+  useEffect(() => {
+    if (open && onWiden !== undefined) onWiden()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   // Directory entries: user/steering prompts, consecutive duplicates collapsed.
   const entries = useMemo<TocEntry[]>(() => {
@@ -256,8 +267,10 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
   }, [open, entries.length, gripLeft, gripTop, size])
 
   // Hover tooltip with the FULL entry text: rows are clamped previews, so the
-  // tip guarantees the whole prompt is always reachable. Anchored near the row,
-  // kept inside the viewport, pointer-events:none so it never eats clicks.
+  // Hover tooltip with the FULL entry text. It appears only when the row's
+  // preview is actually truncated (the label overflows), so hovering a short
+  // message shows nothing; it disappears the instant the pointer leaves the
+  // row or the panel. pointer-events:none so it never eats clicks.
   const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
   const showTip = useCallback((text: string, rect: DOMRect): void => {
     const width = Math.min(420, window.innerWidth - 24)
@@ -266,6 +279,15 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     setTip({ text, x, y })
   }, [])
   const hideTip = useCallback((): void => { setTip(null) }, [])
+  const enterRow = useCallback((e: ReactMouseEvent<HTMLButtonElement>, text: string): void => {
+    const label = e.currentTarget.querySelector<HTMLElement>('.dsh-ph-toc-label')
+    // Only truncated previews need the full text on hover.
+    if (label !== null && label.scrollWidth > label.clientWidth + 1) {
+      showTip(text, e.currentTarget.getBoundingClientRect())
+    } else {
+      setTip(null)
+    }
+  }, [showTip])
 
   return createPortal(
     <>
@@ -289,6 +311,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
           ref={panelRef}
           className="dsh-ph-toc"
           style={panelStyle ?? { top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230), width: 300 }}
+          onMouseLeave={hideTip}
         >
           <div className="dsh-ph-toc-title">{T('toc.title')}</div>
           <div className="dsh-ph-toc-list" onScroll={hideTip}>
@@ -298,7 +321,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
                 key={`${i}:${entry.text}`}
                 className="dsh-ph-toc-item"
                 onClick={() => { jumpTo(i) }}
-                onMouseEnter={(e) => { showTip(entry.text, e.currentTarget.getBoundingClientRect()) }}
+                onMouseEnter={(e) => { enterRow(e, entry.text) }}
                 onMouseLeave={hideTip}
               >
                 <span className="dsh-ph-toc-idx">{i + 1}</span>

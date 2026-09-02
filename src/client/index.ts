@@ -5,6 +5,8 @@
  * DSH app locale).
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the runtime sessions service (ctx.get('sessions') for loadOlder).
+import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.right entry)
 // and the session standard kit members used by the component.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -17,6 +19,7 @@ import { SettingsSection } from './SettingsSection.tsx'
 import { NS, en, zh } from './locales.ts'
 import { setTranslator, T } from './i18n.ts'
 import { installNavGlyph } from './navGlyph.ts'
+import { bindSessionsService } from './sessionCtx.ts'
 
 /** Required services: the slot registry, the locale service. */
 export const inject = ['slots', 'locale']
@@ -72,6 +75,10 @@ export function apply(ctx: ClientContext): void {
   // Dictionaries + the vanilla-DOM translator (toolbar/pills/overlay/TOC).
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompt-history: dictionaries')
   setTranslator(ctx.locale.bind(NS))
+
+  // Capture the runtime sessions service so the full-history TOC can widen the
+  // loaded window with loadOlder() from component code (no ctx there).
+  bindSessionsService(ctx.get('sessions') as ISessions | undefined)
 
   ctx.slots.inject('conversation.input.right', () => ctx.slots.register(
     { name: 'conversation.input.right', id: 'dsh-prompt-history' },

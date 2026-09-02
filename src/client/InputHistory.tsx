@@ -33,7 +33,7 @@
  * (Shift+Up still extends selection), no IME composition, machine not
  * adjudicating/submitting, session not removed.
  */
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useSyncExternalStore, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ui-conversation SlotMap merge (the input.right entry) and the
 // session standard kit members (useInput/inputActions).
@@ -46,6 +46,7 @@ import {
   flashCopied, hideSearchOverlay, hideSelectionToolbar, showSearchOverlay, showSelectionToolbar,
 } from './feedback.ts'
 import { T } from './i18n.ts'
+import { pullOlderPage } from './sessionCtx.ts'
 import { ChatToc } from './ChatToc.tsx'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
@@ -103,6 +104,27 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   const phase = useInput(s => s.phase)
   const nodes = useSession(s => s.nodes)
   const removed = useSession(s => s.removed) ?? false
+
+  // Full-history TOC: when the directory opens it asks us to widen the loaded
+  // window backwards (loadOlder page by page) until hasMore is false, so every
+  // earlier user message shows up in the directory, not just the initial window.
+  const hasMore = useSession(s => s.hasMore)
+  const loadingOlder = useSession(s => s.loadingOlder)
+  const openState = useSession(s => s.openState)
+  const [widen, setWiden] = useState(false)
+  const widenBusyRef = useRef(false)
+  const widenPagesRef = useRef(0)
+  const requestWiden = useCallback((): void => { setWiden(true) }, [])
+  useEffect(() => {
+    if (!widen) return
+    if (removed || openState !== 'open') { setWiden(false); return }
+    if (!hasMore) { setWiden(false); return }
+    if (loadingOlder || widenBusyRef.current) return
+    if (widenPagesRef.current >= 60) { setWiden(false); return } // safety cap
+    widenBusyRef.current = true
+    widenPagesRef.current += 1
+    void pullOlderPage(sessionId).finally(() => { widenBusyRef.current = false })
+  }, [widen, hasMore, loadingOlder, openState, sessionId, removed])
 
   /** Submitted prompt texts, oldest → newest (per session; append-only). */
   const historyRef = useRef<string[]>([])
@@ -590,5 +612,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     }
   }, [])
 
-  return useSyncExternalStore(subscribePrefs, getPrefs).tocVisible ? <ChatToc nodes={nodes} /> : null
+  return useSyncExternalStore(subscribePrefs, getPrefs).tocVisible
+    ? <ChatToc nodes={nodes} onWiden={requestWiden} />
+    : null
 }

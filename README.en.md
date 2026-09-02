@@ -81,7 +81,7 @@ Up/Down history is always on, independent of these switches.
 ## Known limitations
 
 - **Ctrl+R**: while the composer is focused, Ctrl+R is reverse-search — it no longer reloads the page (click outside the input first to reload).
-- On a session switch, only the currently loaded event window's messages are recallable (everything submitted while the page is open is included); there is no host-side history fetch.
+- The conversation directory pulls older host history automatically (page by page until complete), so it can locate every earlier position; Up/Down recall still covers the currently loaded window only.
 - Plain text only: image-only or chip-bearing messages are not recalled; recalled drafts are plain text.
 
 ## Development

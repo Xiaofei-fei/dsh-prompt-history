@@ -81,7 +81,7 @@ O histórico de ↑/↓ está sempre ligado, independentemente dessas alternânc
 ## Limitações conhecidas
 
 - **Ctrl+R**: com o compositor focado, Ctrl+R é busca reversa — ele não recarrega mais a página (clique fora do campo primeiro para recarregar).
-- Ao trocar de sessão, apenas as mensagens da janela de eventos atualmente carregada podem ser recuperadas (tudo enviado com a página aberta está incluído); não há busca de histórico do lado do host.
+- O diretório da conversa puxa automaticamente o histórico mais antigo do host (página por página até completar), então pode localizar qualquer posição anterior; a recuperação com ↑/↓ ainda cobre apenas a janela carregada.
 - Apenas texto simples: mensagens só com imagens ou chips não são recuperadas; os rascunhos recuperados são texto simples.
 
 ## Desenvolvimento
