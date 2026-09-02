@@ -49,6 +49,52 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     return out
   }, [nodes])
 
+  // Map every directory entry to its conversation row (user/steering rows only,
+  // matched in DOM order with whitespace-normalized text). Entries and rows
+  // share the same loaded event window, so the ordinal walk stays exact — and
+  // clicking works in ANY order, including repeated prompts.
+  const USER_ROW = '[data-chat-anchor-key][data-chat-flow-kind="user"], [data-chat-anchor-key][data-chat-flow-kind="steering"]'
+  const [rowMap, setRowMap] = useState<readonly number[]>([])
+  useLayoutEffect(() => {
+    if (!open || entries.length === 0) {
+      setRowMap([])
+      return
+    }
+    const norm = (t: string): string => (t ?? '').replace(/\s+/g, ' ').trim()
+    let rows = [...document.querySelectorAll<HTMLElement>(USER_ROW)]
+    if (rows.length === 0) rows = [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
+    const texts = rows.map((row) => norm(row.textContent ?? ''))
+    const map: number[] = []
+    let cursor = 0
+    for (const entry of entries) {
+      const target = norm(entry.text)
+      while (cursor < texts.length && !(texts[cursor]?.includes(target) ?? false)) cursor++
+      map.push(cursor < texts.length ? cursor : -1)
+    }
+    setRowMap(map)
+  }, [open, entries])
+
+  // Scroll the conversation to the message behind entry `index`.
+  const jumpTo = (index: number): void => {
+    const mapped = rowMap[index]
+    let hit: HTMLElement | undefined
+    if (mapped !== undefined && mapped >= 0) {
+      const rows = [...document.querySelectorAll<HTMLElement>(USER_ROW)]
+      const pool = rows.length > 0 ? rows : [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
+      hit = pool[mapped]
+    }
+    if (hit === undefined) {
+      // Fallback: first row whose (normalized) text contains this entry.
+      const norm = (t: string): string => (t ?? '').replace(/\s+/g, ' ').trim()
+      const target = norm(entries[index]?.text ?? '')
+      hit = [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
+        .find((row) => norm(row.textContent ?? '').includes(target))
+    }
+    if (hit === undefined) return
+    hit.scrollIntoView({ block: 'start' })
+    setOpen(false)
+  }
+
   // Anchor the grip/panel to the conversation scrollport's left edge.
   const measure = useCallback((): void => {
     const scrollport = document.querySelector<HTMLElement>('[data-conversation-scroll]')
@@ -173,21 +219,6 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
       window.removeEventListener('mouseup', endResize)
     }
   }, [onDragMove, onResizeMove, endDrag, endResize])
-
-  // Scroll the conversation to the first anchor row containing the entry text,
-  // walking from the previous entry's row so repeated prompts land in order.
-  const lastRowRef = useRef(0)
-  const jumpTo = (index: number): void => {
-    const entry = entries[index]
-    if (entry === undefined) return
-    const rows = [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
-    const start = index === 0 ? 0 : lastRowRef.current
-    const hit = rows.slice(start).find((row) => (row.textContent ?? '').includes(entry.text))
-    if (hit === undefined) return
-    lastRowRef.current = rows.indexOf(hit)
-    hit.scrollIntoView({ block: 'start' })
-    setOpen(false)
-  }
 
   const gripLeft = pos?.left ?? origin.left + 6
   const gripTop = pos?.top ?? gripY() - 26
