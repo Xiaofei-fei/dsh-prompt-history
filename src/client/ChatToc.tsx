@@ -84,10 +84,14 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     if (!open) return
     const onPointerDown = (e: PointerEvent): void => {
       if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
+      setTip(null)
       setOpen(false)
     }
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setTip(null)
+        setOpen(false)
+      }
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('keydown', onKeyDown, true)
@@ -220,6 +224,18 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     ))
   }, [open, entries.length, gripLeft, gripTop, size])
 
+  // Hover tooltip with the FULL entry text: rows are clamped previews, so the
+  // tip guarantees the whole prompt is always reachable. Anchored near the row,
+  // kept inside the viewport, pointer-events:none so it never eats clicks.
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
+  const showTip = useCallback((text: string, rect: DOMRect): void => {
+    const width = Math.min(420, window.innerWidth - 24)
+    const x = Math.max(4, Math.min(rect.left, window.innerWidth - width - 8))
+    const y = rect.bottom + 6 < window.innerHeight - 8 ? rect.bottom + 6 : Math.max(4, rect.top - 308)
+    setTip({ text, x, y })
+  }, [])
+  const hideTip = useCallback((): void => { setTip(null) }, [])
+
   return createPortal(
     <>
       <button
@@ -244,15 +260,18 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
           style={panelStyle ?? { top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230), width: 300 }}
         >
           <div className="dsh-ph-toc-title">{T('toc.title')}</div>
-          <div className="dsh-ph-toc-list">
+          <div className="dsh-ph-toc-list" onScroll={hideTip}>
             {entries.map((entry, i) => (
               <button
                 type="button"
                 key={`${i}:${entry.text}`}
                 className="dsh-ph-toc-item"
                 onClick={() => { jumpTo(i) }}
+                onMouseEnter={(e) => { showTip(entry.text, e.currentTarget.getBoundingClientRect()) }}
+                onMouseLeave={hideTip}
               >
-                {entry.text}
+                <span className="dsh-ph-toc-idx">{i + 1}</span>
+                <span className="dsh-ph-toc-label">{entry.text}</span>
               </button>
             ))}
           </div>
@@ -262,6 +281,9 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
             onMouseDown={startResize}
           />
         </div>
+      )}
+      {tip !== null && (
+        <div className="dsh-ph-toc-tip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>
       )}
     </>,
     document.body,

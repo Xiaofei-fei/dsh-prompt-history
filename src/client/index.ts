@@ -38,13 +38,16 @@ const SETTINGS_CSS = [
   // entries NEVER compress when the list overflows — the excess simply scrolls
   // (overflow-y:auto), keeping every row's height, font and line-height intact.
   '.dsh-ph-toc-list{overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:4px;box-sizing:border-box;min-height:0;flex:1 1 auto;overscroll-behavior:contain;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);}',
-  // Entries show their FULL text (no line-clamp): recent Chromium computes the
-  // legacy display:-webkit-box as flow-root, which breaks -webkit-line-clamp —
-  // the 2nd line got a clipped sliver of the 3rd line and no ellipsis. Full
-  // text keeps every row clean; long entries just make taller rows that the
-  // list scrolls. flex-shrink:0 keeps rows from ever being compressed.
-  '.dsh-ph-toc-item{flex-shrink:0;width:100%;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5;cursor:pointer;white-space:normal;box-sizing:border-box;}',
+  // Uniform directory rows: fixed 32px height, leading index column, and a
+  // single-line ellipsis label (standard text-overflow — no line-clamp, which
+  // Chromium 148 renders unreliably). Rows are therefore all exactly the same
+  // height no matter the message length; the FULL text shows in the hover
+  // tooltip, so shortening the preview loses nothing.
+  '.dsh-ph-toc-item{flex-shrink:0;display:flex;align-items:center;gap:8px;width:100%;height:32px;text-align:left;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;box-sizing:border-box;}',
   '.dsh-ph-toc-item:hover{background:var(--dsw-alias-bg-layer-2);}',
+  '.dsh-ph-toc-idx{flex:none;min-width:24px;text-align:right;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;line-height:1;}',
+  '.dsh-ph-toc-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4;}',
+  '.dsh-ph-toc-tip{position:fixed;z-index:2147483001;max-width:min(420px,calc(100vw - 24px));max-height:min(40vh,300px);overflow-y:auto;padding:8px 10px;border-radius:8px;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);box-shadow:0 6px 20px rgba(0,0,0,.22);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;box-sizing:border-box;}',
   '.dsh-ph-toc-resize{position:absolute;right:3px;bottom:3px;width:14px;height:14px;cursor:se-resize;border-radius:3px;opacity:.55;background:linear-gradient(135deg,transparent 0 50%,var(--dsw-alias-label-tertiary) 50% 58%,transparent 58%),linear-gradient(135deg,transparent 0 66%,var(--dsw-alias-label-tertiary) 66% 74%,transparent 74%);}',
   '.dsh-ph-toc-resize:hover{opacity:1;}',
 ].join('')
