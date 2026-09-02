@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-history",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "DSH web plugin: terminal-style input for the composer — bash-like Up/Down prompt history with prefix search and Ctrl+R, selection toolbar with copy and quote (Codex-style > blockquote), right-click paste, toggleable draggable chat TOC, fully internationalized (zh/en), with copy modes in Settings (history sourced from the session's own message log; zero config required).",
   "keywords": [
     "dsh",
