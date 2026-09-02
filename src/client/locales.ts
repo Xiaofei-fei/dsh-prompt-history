@@ -24,6 +24,7 @@ const zh = {
   'pill.quoted': '已引用',
   'toc.title': '会话目录',
   'toc.aria': '会话目录（可拖动）',
+  'toc.resize': '拖动右下角调整面板大小',
   'search.noMatch': '无匹配',
 } as const
 
@@ -44,6 +45,7 @@ const en: Record<keyof typeof zh, string> = {
   'pill.quoted': 'Quoted',
   'toc.title': 'Conversation TOC',
   'toc.aria': 'Conversation TOC (draggable)',
+  'toc.resize': 'Drag the corner to resize',
   'search.noMatch': 'no match',
 }
 

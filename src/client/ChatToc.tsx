@@ -120,14 +120,55 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     } catch { /* storage unavailable */ }
   }, [pos])
 
+  // Resizable panel: a bottom-right corner handle drags the width/height
+  // (clamped), persisted in localStorage so the user's size survives reloads.
+  const SIZE_KEY = 'dsh-prompt-history.tocSize'
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const resizeRef = useRef<{ startX: number; startY: number; baseW: number; baseH: number } | null>(null)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SIZE_KEY)
+      if (raw !== null) setSize(JSON.parse(raw) as { width: number; height: number })
+    } catch { /* corrupt saved size: fall back to the default */ }
+  }, [])
+
+  const startResize = (e: ReactMouseEvent): void => {
+    e.preventDefault() // no text selection while resizing
+    e.stopPropagation()
+    const panel = panelRef.current
+    if (panel === null) return
+    const rect = panel.getBoundingClientRect()
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, baseW: rect.width, baseH: rect.height }
+  }
+  const onResizeMove = useCallback((e: MouseEvent): void => {
+    const resize = resizeRef.current
+    if (resize === null) return
+    const width = Math.min(Math.max(260, resize.baseW + e.clientX - resize.startX), Math.min(560, window.innerWidth - 16))
+    const height = Math.min(Math.max(160, resize.baseH + e.clientY - resize.startY), window.innerHeight - 8)
+    setSize({ width, height })
+  }, [])
+  const endResize = useCallback((): void => {
+    if (resizeRef.current === null) return
+    resizeRef.current = null
+    try {
+      const current = size
+      if (current !== null) localStorage.setItem(SIZE_KEY, JSON.stringify(current))
+    } catch { /* storage unavailable */ }
+  }, [size])
+
   useEffect(() => {
     window.addEventListener('mousemove', onDragMove)
+    window.addEventListener('mousemove', onResizeMove)
     window.addEventListener('mouseup', endDrag)
+    window.addEventListener('mouseup', endResize)
     return () => {
       window.removeEventListener('mousemove', onDragMove)
+      window.removeEventListener('mousemove', onResizeMove)
       window.removeEventListener('mouseup', endDrag)
+      window.removeEventListener('mouseup', endResize)
     }
-  }, [onDragMove, endDrag])
+  }, [onDragMove, onResizeMove, endDrag, endResize])
 
   // Scroll the conversation to the first anchor row containing the entry text,
   // walking from the previous entry's row so repeated prompts land in order.
@@ -150,8 +191,10 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
   // The panel is anchored to the grip like a context menu: it sits to the
   // grip's right, vertically centered on it, and is clamped so the box always
   // fits the viewport — dragging the grip to the bottom edge shifts the panel
-  // up just enough (never clipping the directory).
-  const [panelStyle, setPanelStyle] = useState<{ top: number; left: number; maxHeight: number } | null>(null)
+  // up just enough (never clipping the directory). A user-resized panel keeps
+  // its dragged width/height (the list scrolls inside); otherwise it sizes to
+  // its content up to the cap.
+  const [panelStyle, setPanelStyle] = useState<{ top: number; left: number; width: number; maxHeight?: number; height?: number } | null>(null)
   useLayoutEffect(() => {
     if (!open || entries.length === 0) return
     const panel = panelRef.current
@@ -159,18 +202,23 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
     const gap = 8
     const gripRight = gripLeft + 20 // grip width from .dsh-ph-toc-grip
     const gripCenterY = gripTop + 26 // grip height 52 → vertical center
-    const natural = Math.min(panel.getBoundingClientRect().height, 480)
-    const maxHeight = Math.min(natural, window.innerHeight - 8)
-    const left = Math.max(4, Math.min(gripRight + gap, window.innerWidth - 308))
+    const width = size?.width ?? 300
+    const maxHeight = size?.height !== undefined
+      ? Math.min(size.height, window.innerHeight - 8)
+      : Math.min(Math.min(panel.getBoundingClientRect().height, 480), window.innerHeight - 8)
+    const left = Math.max(4, Math.min(gripRight + gap, window.innerWidth - width - 8))
     // Prefer centering on the grip; clamp so both edges stay inside the viewport.
     const top = Math.max(4, Math.min(gripCenterY - maxHeight / 2, window.innerHeight - maxHeight - 4))
-    const next = { top, left, maxHeight }
+    const next = size?.height !== undefined
+      ? { top, left, width, height: maxHeight }
+      : { top, left, width, maxHeight }
     setPanelStyle((prev) => (
-      prev !== null && prev.top === next.top && prev.left === next.left && prev.maxHeight === next.maxHeight
+      prev !== null && prev.top === next.top && prev.left === next.left
+        && prev.width === next.width && prev.maxHeight === next.maxHeight && prev.height === next.height
         ? prev
         : next
     ))
-  }, [open, entries.length, gripLeft, gripTop])
+  }, [open, entries.length, gripLeft, gripTop, size])
 
   return createPortal(
     <>
@@ -193,7 +241,7 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
         <div
           ref={panelRef}
           className="dsh-ph-toc"
-          style={panelStyle ?? { top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230) }}
+          style={panelStyle ?? { top: Math.max(4, gripTop - 8), left: Math.min(gripLeft + 30, window.innerWidth - 230), width: 300 }}
         >
           <div className="dsh-ph-toc-title">{T('toc.title')}</div>
           <div className="dsh-ph-toc-list">
@@ -208,6 +256,11 @@ export function ChatToc({ nodes }: ChatTocProps): JSX.Element {
               </button>
             ))}
           </div>
+          <div
+            className="dsh-ph-toc-resize"
+            title={T('toc.resize')}
+            onMouseDown={startResize}
+          />
         </div>
       )}
     </>,
