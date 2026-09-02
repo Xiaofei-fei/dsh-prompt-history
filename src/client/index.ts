@@ -5,8 +5,6 @@
  * DSH app locale).
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only: the runtime sessions service (ctx.get('sessions') for loadOlder).
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.right entry)
 // and the session standard kit members used by the component.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -19,7 +17,7 @@ import { SettingsSection } from './SettingsSection.tsx'
 import { NS, en, zh } from './locales.ts'
 import { setTranslator, T } from './i18n.ts'
 import { installNavGlyph } from './navGlyph.ts'
-import { bindSessionsService } from './sessionCtx.ts'
+import { bindRootContext } from './sessionCtx.ts'
 
 /** Required services: the slot registry, the locale service. */
 export const inject = ['slots', 'locale']
@@ -41,13 +39,13 @@ const SETTINGS_CSS = [
   // entries NEVER compress when the list overflows — the excess simply scrolls
   // (overflow-y:auto), keeping every row's height, font and line-height intact.
   '.dsh-ph-toc-list{overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;box-sizing:border-box;min-height:0;flex:1 1 auto;overscroll-behavior:contain;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);}',
-  // Uniform directory rows: fixed 32px height, leading index column, and a
+  // Uniform directory rows: fixed 28px height, leading index column, and a
   // single-line ellipsis label (standard text-overflow — no line-clamp, which
   // Chromium 148 renders unreliably). Rows are therefore all exactly the same
-  // height no matter the message length; the FULL text shows in the hover
-  // tooltip, so shortening the preview loses nothing. No inter-row gap: the
-  // entries stack as a clean continuous list (hover highlights the row).
-  '.dsh-ph-toc-item{flex-shrink:0;display:flex;align-items:center;gap:8px;width:100%;height:32px;text-align:left;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;box-sizing:border-box;}',
+  // compact height no matter the message length; the FULL text shows in the
+  // hover tooltip, so shortening the preview loses nothing. No inter-row gap:
+  // the entries stack as one tight directory (hover highlights the row).
+  '.dsh-ph-toc-item{flex-shrink:0;display:flex;align-items:center;gap:8px;width:100%;height:28px;text-align:left;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;box-sizing:border-box;}',
   '.dsh-ph-toc-item:hover{background:var(--dsw-alias-bg-layer-2);}',
   '.dsh-ph-toc-idx{flex:none;min-width:24px;text-align:right;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;line-height:1;}',
   '.dsh-ph-toc-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4;}',
@@ -76,9 +74,10 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompt-history: dictionaries')
   setTranslator(ctx.locale.bind(NS))
 
-  // Capture the runtime sessions service so the full-history TOC can widen the
-  // loaded window with loadOlder() from component code (no ctx there).
-  bindSessionsService(ctx.get('sessions') as ISessions | undefined)
+  // Keep the root context so the full-history TOC can widen the loaded window
+  // with loadOlder() from component code (no ctx there); the sessions service
+  // is resolved lazily per call — it appears only after the host connection.
+  bindRootContext(ctx)
 
   ctx.slots.inject('conversation.input.right', () => ctx.slots.register(
     { name: 'conversation.input.right', id: 'dsh-prompt-history' },

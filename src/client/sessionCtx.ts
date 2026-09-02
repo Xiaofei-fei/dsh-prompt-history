@@ -6,20 +6,25 @@
  * chat uses when the user scrolls to older content). Pulling pages until
  * `hasMore` is false loads the ENTIRE conversation, so the directory can list
  * every user message — not just the initially loaded window.
+ *
+ * The service is provided only after the host connection is up, so it is
+ * resolved LAZILY on every call (never captured at apply time): mirror of
+ * ui-conversation's own `requireSessions()`.
  */
-import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 
-let sessionsService: ISessions | undefined
+let rootContext: ClientContext | undefined
 
-/** Capture the runtime sessions service (called once from apply). */
-export function bindSessionsService(service: ISessions | undefined): void {
-  sessionsService = service
+/** Keep the root context (called once from apply). */
+export function bindRootContext(ctx: ClientContext): void {
+  rootContext = ctx
 }
 
 /** Pull one older history page for `sessionId`; true when a page was pulled. */
 export async function pullOlderPage(sessionId: SessionId): Promise<boolean> {
-  if (sessionsService === undefined) return false
-  const binding = sessionsService.binding(sessionId)
+  const sessions = rootContext?.get('sessions') as ISessions | undefined
+  if (sessions === undefined) return false
+  const binding = sessions.binding(sessionId)
   if (binding === undefined) return false
   try {
     await binding.session.loadOlder()

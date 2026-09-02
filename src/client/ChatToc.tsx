@@ -86,6 +86,10 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
   }, [open, entries])
 
   // Scroll the conversation to the message behind entry `index`.
+  // jumpTo is defined before the tip state, so read/clear it through a ref
+  // captured at render; the actual setTip lives below.
+  const tipSetterRef = useRef<((v: null) => void) | null>(null)
+
   const jumpTo = (index: number): void => {
     const mapped = rowMap[index]
     let hit: HTMLElement | undefined
@@ -103,6 +107,9 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
     }
     if (hit === undefined) return
     hit.scrollIntoView({ block: 'start' })
+    // Close the panel AND the hover tooltip immediately (the tooltip is
+    // rendered outside the panel, so closing the panel alone would leave it).
+    tipSetterRef.current?.(null)
     setOpen(false)
   }
 
@@ -272,6 +279,7 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
   // message shows nothing; it disappears the instant the pointer leaves the
   // row or the panel. pointer-events:none so it never eats clicks.
   const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
+  tipSetterRef.current = setTip
   const showTip = useCallback((text: string, rect: DOMRect): void => {
     const width = Math.min(420, window.innerWidth - 24)
     const x = Math.max(4, Math.min(rect.left, window.innerWidth - width - 8))
