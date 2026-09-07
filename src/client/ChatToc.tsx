@@ -8,28 +8,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
-import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { T } from './i18n.ts'
 
 /** One directory entry: the prompt text and a row index for scroll targeting. */
-export interface TocEntry {
-  readonly text: string
-}
-
-/** Extract the plain text of a user-submitted node; null for others/empty. */
-function entryText(node: ConversationNode): string | null {
-  if (node.kind !== 'user' && node.kind !== 'steering') return null
-  let text = ''
-  for (const block of node.content) {
-    if (block.type === 'text') text += block.text
-  }
-  const trimmed = text.trim()
-  return trimmed === '' ? null : trimmed
-}
-
-/** Full props: the conversation nodes to build the directory from. */
+/** Full props: the directory texts, in conversation order (already collapsed). */
 export interface ChatTocProps {
-  readonly nodes: readonly ConversationNode[]
+  /** Every user/steering prompt text, oldest → newest (parent dedups). */
+  readonly texts: readonly string[]
   /**
    * Called when the directory opens: the parent widens the loaded history
    * window (loadOlder pages) so the directory can list earlier messages too.
@@ -38,7 +23,7 @@ export interface ChatTocProps {
 }
 
 /** The TOC grip + panel entry. */
-export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
+export function ChatToc({ texts, onWiden }: ChatTocProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [origin, setOrigin] = useState({ left: 0, top: 0, bottom: 0 })
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -49,17 +34,6 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Directory entries: user/steering prompts, consecutive duplicates collapsed.
-  const entries = useMemo<TocEntry[]>(() => {
-    const out: TocEntry[] = []
-    for (const node of nodes) {
-      const text = entryText(node)
-      if (text === null) continue
-      if (out[out.length - 1]?.text !== text) out.push({ text })
-    }
-    return out
-  }, [nodes])
-
   // Map every directory entry to its conversation row (user/steering rows only,
   // matched in DOM order with whitespace-normalized text). Entries and rows
   // share the same loaded event window, so the ordinal walk stays exact — and
@@ -67,23 +41,23 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
   const USER_ROW = '[data-chat-anchor-key][data-chat-flow-kind="user"], [data-chat-anchor-key][data-chat-flow-kind="steering"]'
   const [rowMap, setRowMap] = useState<readonly number[]>([])
   useLayoutEffect(() => {
-    if (!open || entries.length === 0) {
+    if (!open || texts.length === 0) {
       setRowMap([])
       return
     }
     const norm = (t: string): string => (t ?? '').replace(/\s+/g, ' ').trim()
     let rows = [...document.querySelectorAll<HTMLElement>(USER_ROW)]
     if (rows.length === 0) rows = [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
-    const texts = rows.map((row) => norm(row.textContent ?? ''))
+    const rowTexts = rows.map((row) => norm(row.textContent ?? ''))
     const map: number[] = []
     let cursor = 0
-    for (const entry of entries) {
-      const target = norm(entry.text)
-      while (cursor < texts.length && !(texts[cursor]?.includes(target) ?? false)) cursor++
-      map.push(cursor < texts.length ? cursor : -1)
+    for (const text of texts) {
+      const target = norm(text)
+      while (cursor < rowTexts.length && !(rowTexts[cursor]?.includes(target) ?? false)) cursor++
+      map.push(cursor < rowTexts.length ? cursor : -1)
     }
     setRowMap(map)
-  }, [open, entries])
+  }, [open, texts])
 
   // Scroll the conversation to the message behind entry `index`.
   // jumpTo is defined before the tip state, so read/clear it through a ref
@@ -101,7 +75,7 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
     if (hit === undefined) {
       // Fallback: first row whose (normalized) text contains this entry.
       const norm = (t: string): string => (t ?? '').replace(/\s+/g, ' ').trim()
-      const target = norm(entries[index]?.text ?? '')
+      const target = norm(texts[index] ?? '')
       hit = [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
         .find((row) => norm(row.textContent ?? '').includes(target))
     }
@@ -249,7 +223,7 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
   // its content up to the cap.
   const [panelStyle, setPanelStyle] = useState<{ top: number; left: number; width: number; maxHeight?: number; height?: number } | null>(null)
   useLayoutEffect(() => {
-    if (!open || entries.length === 0) return
+    if (!open || texts.length === 0) return
     const panel = panelRef.current
     if (panel === null) return
     const gap = 8
@@ -271,7 +245,7 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
         ? prev
         : next
     ))
-  }, [open, entries.length, gripLeft, gripTop, size])
+  }, [open, texts.length, gripLeft, gripTop, size])
 
   // Hover tooltip with the FULL entry text: rows are clamped previews, so the
   // Hover tooltip with the FULL entry text. It appears only when the row's
@@ -314,7 +288,7 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
       >
         ☰
       </button>
-      {open && entries.length > 0 && (
+      {open && texts.length > 0 && (
         <div
           ref={panelRef}
           className="dsh-ph-toc"
@@ -323,17 +297,17 @@ export function ChatToc({ nodes, onWiden }: ChatTocProps): JSX.Element {
         >
           <div className="dsh-ph-toc-title">{T('toc.title')}</div>
           <div className="dsh-ph-toc-list" onScroll={hideTip}>
-            {entries.map((entry, i) => (
+            {texts.map((text, i) => (
               <button
                 type="button"
-                key={`${i}:${entry.text}`}
+                key={`${i}:${text}`}
                 className="dsh-ph-toc-item"
                 onClick={() => { jumpTo(i) }}
-                onMouseEnter={(e) => { enterRow(e, entry.text) }}
+                onMouseEnter={(e) => { enterRow(e, text) }}
                 onMouseLeave={hideTip}
               >
                 <span className="dsh-ph-toc-idx">{i + 1}</span>
-                <span className="dsh-ph-toc-label">{entry.text}</span>
+                <span className="dsh-ph-toc-label">{text}</span>
               </button>
             ))}
           </div>

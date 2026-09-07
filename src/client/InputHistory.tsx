@@ -33,7 +33,7 @@
  * (Shift+Up still extends selection), no IME composition, machine not
  * adjudicating/submitting, session not removed.
  */
-import { useCallback, useEffect, useRef, useSyncExternalStore, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ui-conversation SlotMap merge (the input.right entry) and the
 // session standard kit members (useInput/inputActions).
@@ -47,6 +47,7 @@ import {
 } from './feedback.ts'
 import { T } from './i18n.ts'
 import { pullOlderPage } from './sessionCtx.ts'
+import { promptMessage, type PromptMessage } from './nodes.ts'
 import {
   COMPOSER_CARD, editorFocused, editorHost, editorSelectedText, editorSelectionOffsets,
   focusEditor, isEditorTarget, setEditorCaret,
@@ -85,28 +86,34 @@ const RESET_BROWSE: BrowseState = { index: -1, saved: '', lastSet: null }
 const OPEN_MENU = '[role="listbox"]'
 
 /** DSH ≥ 0.1.2 moved the conversation nodes off the session snapshot onto the
- * chat view's legacy slice (`useChat(s => s.legacy.nodes)`); the lifecycle
- * fields (removed/hasMore/loadingOlder/openState) stay on useSession. Reads
- * either source so the plugin works on both generations of the harness. */
-interface SnapshotLike {
-  nodes?: readonly ConversationNode[]
-  legacy?: { nodes?: readonly ConversationNode[] }
+ * chat view (useChat); the lifecycle fields (removed/hasMore/loadingOlder/
+ * openState) stay on useSession. Node shapes differ per generation, so reads
+ * go through rawNodesOf + promptMessage (nodes.ts). */
+interface ChatLike {
+  /** 0.1.1 session snapshot nodes, or a direct array on newer shapes. */
+  nodes?: unknown
+  /** 0.1.2 web: the old-shaped node array compatibility slice. */
+  legacy?: { nodes?: unknown }
+  /** 2.0.x desktop: ordered node keys + a store whose .get(key) returns a node. */
+  order?: readonly string[]
   removed?: boolean
   hasMore?: boolean
   loadingOlder?: boolean
   openState?: string
 }
-type SelectorHook = (select: (snapshot: SnapshotLike) => unknown) => unknown
+type SelectorHook = (select: (snapshot: ChatLike) => unknown) => unknown
 
-/** Extract the trimmed plain text of one user-submitted message node; null when empty. */
-function promptText(node: ConversationNode): string | null {
-  if (node.kind !== 'user' && node.kind !== 'steering') return null
-  let text = ''
-  for (const block of node.content) {
-    if (block.type === 'text') text += block.text
+/** Pull the ordered node array out of whichever snapshot shape is present. */
+function rawNodesOf(snapshot: ChatLike): readonly unknown[] {
+  const legacy = snapshot.legacy?.nodes
+  if (Array.isArray(legacy)) return legacy
+  const order = snapshot.order
+  const store = snapshot.nodes as { get?: (key: string) => unknown } | undefined
+  if (Array.isArray(order) && store !== undefined && typeof store.get === 'function') {
+    return order.map((key) => store.get?.(key)).filter((n): n is unknown => n !== null && n !== undefined)
   }
-  const trimmed = text.trim()
-  return trimmed === '' ? null : trimmed
+  if (Array.isArray(snapshot.nodes)) return snapshot.nodes
+  return []
 }
 
 /**
@@ -124,16 +131,23 @@ export function InputHistory(props: InputHistoryProps) {
   // Latest machine/session facts at event time (the listeners mount once).
   const draft = useInput(s => s.draft)
   const phase = useInput(s => s.phase)
-  // On rc.1 the chat snapshot's `nodes` is a ChatNodeStore (an object), NOT an
-  // array — the conversation-node array lives on `legacy.nodes`. Only accept
-  // an actual array (legacy slice preferred) so nothing non-iterable reaches
-  // ChatToc or the history fold.
-  const nodes = (nodesHook?.((s: SnapshotLike) => {
-    const legacy = s.legacy?.nodes
-    if (Array.isArray(legacy)) return legacy
-    const direct = s.nodes
-    return Array.isArray(direct) ? direct : []
-  }) as readonly ConversationNode[] | undefined) ?? []
+  // Node shapes differ by DSH generation (old {kind,seq,content} vs 2.0.x
+  // chatNode with data.content/anchorSeq, and rc.1's nodes being a store, not
+  // an array). rawNodesOf + promptMessage normalize them to {kind, seq, text},
+  // so nothing non-iterable or mis-shaped reaches the history or the directory.
+  const rawNodes = (nodesHook?.((s: ChatLike) => rawNodesOf(s)) as readonly unknown[] | undefined) ?? []
+  const messages = useMemo(
+    () => rawNodes.map(promptMessage).filter((m): m is PromptMessage => m !== null),
+    [rawNodes],
+  )
+  // Directory texts: consecutive duplicates collapsed, in conversation order.
+  const tocTexts = useMemo(() => {
+    const out: string[] = []
+    for (const message of messages) {
+      if (message.text !== null && out[out.length - 1] !== message.text) out.push(message.text)
+    }
+    return out
+  }, [messages])
   const removed = sessionHook?.((s) => s.removed) as boolean | undefined ?? false
 
   // Full-history TOC: when the directory opens it asks us to widen the loaded
@@ -212,18 +226,16 @@ export function InputHistory(props: InputHistoryProps) {
     const seen = seenRef.current
     const history = historyRef.current
     const globalOn = getPrefs().globalHistory
-    for (const node of nodes) {
-      if (node.kind !== 'user' && node.kind !== 'steering') continue
-      if (seen.has(node.seq)) continue
-      seen.add(node.seq)
-      const text = promptText(node)
-      if (text === null) continue
-      if (globalOn ? !history.includes(text) : history[history.length - 1] !== text) {
-        history.push(text)
+    for (const message of messages) {
+      if (seen.has(message.seq)) continue
+      seen.add(message.seq)
+      if (message.text === null) continue
+      if (globalOn ? !history.includes(message.text) : history[history.length - 1] !== message.text) {
+        history.push(message.text)
       }
     }
     if (globalOn) saveRing(historyRef.current)
-  }, [nodes])
+  }, [messages])
 
   // Any draft change that is not our own history write ends the browse
   // session (bash drops the recalled line when you edit it).
@@ -644,6 +656,6 @@ export function InputHistory(props: InputHistoryProps) {
   }, [])
 
   return useSyncExternalStore(subscribePrefs, getPrefs).tocVisible
-    ? <ChatToc nodes={nodes} onWiden={requestWiden} />
+    ? <ChatToc texts={tocTexts} onWiden={requestWiden} />
     : null
 }
