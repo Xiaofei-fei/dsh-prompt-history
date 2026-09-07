@@ -124,7 +124,16 @@ export function InputHistory(props: InputHistoryProps) {
   // Latest machine/session facts at event time (the listeners mount once).
   const draft = useInput(s => s.draft)
   const phase = useInput(s => s.phase)
-  const nodes = (nodesHook?.((s) => (s.nodes ?? s.legacy?.nodes ?? [])) as readonly ConversationNode[] | undefined) ?? []
+  // On rc.1 the chat snapshot's `nodes` is a ChatNodeStore (an object), NOT an
+  // array — the conversation-node array lives on `legacy.nodes`. Only accept
+  // an actual array (legacy slice preferred) so nothing non-iterable reaches
+  // ChatToc or the history fold.
+  const nodes = (nodesHook?.((s: SnapshotLike) => {
+    const legacy = s.legacy?.nodes
+    if (Array.isArray(legacy)) return legacy
+    const direct = s.nodes
+    return Array.isArray(direct) ? direct : []
+  }) as readonly ConversationNode[] | undefined) ?? []
   const removed = sessionHook?.((s) => s.removed) as boolean | undefined ?? false
 
   // Full-history TOC: when the directory opens it asks us to widen the loaded
