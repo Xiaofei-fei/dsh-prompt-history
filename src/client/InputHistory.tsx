@@ -47,6 +47,10 @@ import {
 } from './feedback.ts'
 import { T } from './i18n.ts'
 import { pullOlderPage } from './sessionCtx.ts'
+import {
+  COMPOSER_CARD, editorFocused, editorHost, editorSelectedText, editorSelectionOffsets,
+  focusEditor, isEditorTarget, setEditorCaret,
+} from './editor.ts'
 import { ChatToc } from './ChatToc.tsx'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
@@ -77,10 +81,22 @@ interface SearchState {
 /** Not-browsing state; also the reset target after edits and session switches. */
 const RESET_BROWSE: BrowseState = { index: -1, saved: '', lastSet: null }
 
-/** The composer card's own textarea is the only interception target. */
-const COMPOSER_CARD = '[data-composer-card]'
 /** The suggestion menu (slash/at) renders a listbox inside the card while open. */
 const OPEN_MENU = '[role="listbox"]'
+
+/** DSH ≥ 0.1.2 moved the conversation nodes off the session snapshot onto the
+ * chat view's legacy slice (`useChat(s => s.legacy.nodes)`); the lifecycle
+ * fields (removed/hasMore/loadingOlder/openState) stay on useSession. Reads
+ * either source so the plugin works on both generations of the harness. */
+interface SnapshotLike {
+  nodes?: readonly ConversationNode[]
+  legacy?: { nodes?: readonly ConversationNode[] }
+  removed?: boolean
+  hasMore?: boolean
+  loadingOlder?: boolean
+  openState?: string
+}
+type SelectorHook = (select: (snapshot: SnapshotLike) => unknown) => unknown
 
 /** Extract the trimmed plain text of one user-submitted message node; null when empty. */
 function promptText(node: ConversationNode): string | null {
@@ -98,19 +114,25 @@ function promptText(node: ConversationNode): string | null {
  * @param props - framework standard kit (useInput/useSession/inputActions/sessionId).
  * @returns null (the entry is invisible chrome).
  */
-export function InputHistory({ useInput, useSession, inputActions, sessionId }: InputHistoryProps) {
+export function InputHistory(props: InputHistoryProps) {
+  const { useInput, useSession, inputActions, sessionId } = props
+  // rc.1 merges useChat into the same session standard props (nodes source).
+  const useChat = (props as InputHistoryProps & { useChat?: unknown }).useChat
+  const nodesHook = (typeof useChat === 'function' ? useChat : useSession) as SelectorHook | undefined
+  const sessionHook = useSession as SelectorHook | undefined
+
   // Latest machine/session facts at event time (the listeners mount once).
   const draft = useInput(s => s.draft)
   const phase = useInput(s => s.phase)
-  const nodes = useSession(s => s.nodes)
-  const removed = useSession(s => s.removed) ?? false
+  const nodes = (nodesHook?.((s) => (s.nodes ?? s.legacy?.nodes ?? [])) as readonly ConversationNode[] | undefined) ?? []
+  const removed = sessionHook?.((s) => s.removed) as boolean | undefined ?? false
 
   // Full-history TOC: when the directory opens it asks us to widen the loaded
   // window backwards (loadOlder page by page) until hasMore is false, so every
   // earlier user message shows up in the directory, not just the initial window.
-  const hasMore = useSession(s => s.hasMore)
-  const loadingOlder = useSession(s => s.loadingOlder)
-  const openState = useSession(s => s.openState)
+  const hasMore = sessionHook?.((s) => s.hasMore) as boolean | undefined ?? false
+  const loadingOlder = sessionHook?.((s) => s.loadingOlder) as boolean | undefined ?? false
+  const openState = sessionHook?.((s) => s.openState) as string | undefined ?? ''
   const [widen, setWiden] = useState(false)
   const widenBusyRef = useRef(false)
   const widenPagesRef = useRef(0)
@@ -207,8 +229,8 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       const target = e.target
-      if (!(target instanceof HTMLTextAreaElement)) return
-      const card = target.closest(COMPOSER_CARD)
+      if (!isEditorTarget(target)) return
+      const card = (target as Element).closest(COMPOSER_CARD)
       if (card === null) return
       // IME composition stays native; the suggestion menu owns the keys.
       if (e.isComposing || e.keyCode === 229) return
@@ -385,24 +407,26 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     return () => { document.removeEventListener('keydown', onKeyDown, true) }
   }, [])
 
-  // Right-click paste (terminal style): a right-click on the composer textarea
+  // Right-click paste (terminal style): a right-click on the composer editor
   // pastes the clipboard directly, like a Linux terminal.
   useEffect(() => {
-    const pasteInto = (target: HTMLTextAreaElement): void => {
+    const pasteInto = (host: HTMLElement): void => {
       // The composer's own paste handler (chip matching, image intake) fires on
       // the native paste event execCommand dispatches — full Ctrl+V parity.
+      focusEditor(host)
       if (document.execCommand('paste')) return
       // Fallback: read text and splice it at the selection ourselves.
       void navigator.clipboard.readText().then(
         (text) => {
           if (text === '') return
-          const start = target.selectionStart ?? 0
-          const end = target.selectionEnd ?? start
+          const sel = editorSelectionOffsets(host)
+          const start = sel?.start ?? liveRef.current.draft.length
+          const end = sel?.end ?? start
           const draft = liveRef.current.draft
           const next = draft.slice(0, start) + text + draft.slice(end)
           liveRef.current.inputActions.setDraft(next)
           const caret = start + text.length
-          requestAnimationFrame(() => { target.setSelectionRange(caret, caret) })
+          requestAnimationFrame(() => { setEditorCaret(host, caret) })
         },
         () => { /* clipboard read denied: nothing to paste */ },
       )
@@ -410,19 +434,20 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
 
     const onContextMenu = (e: MouseEvent): void => {
       const target = e.target
-      if (!(target instanceof HTMLTextAreaElement)) return
-      if (target.closest(COMPOSER_CARD) === null) return
+      if (!isEditorTarget(target)) return
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
       // Toggle off: leave the native context menu alone.
       if (!getPrefs().rightClickPaste) return
       e.preventDefault()
       e.stopPropagation()
+      const host = editorHost()
+      if (host === null) return
       // Right-click does not focus in browsers; focus so the caret/selection is
       // authoritative for the paste (preventScroll: the caret is where the user
       // sees it already).
-      target.focus({ preventScroll: true })
-      pasteInto(target)
+      focusEditor(host)
+      pasteInto(host)
     }
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => { document.removeEventListener('contextmenu', onContextMenu, true) }
@@ -433,14 +458,14 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
   // clipboard — opt-in); 'toolbar' (default) shows an explicit 复制 button
   // above the selection and copies only when clicked (nothing writes the
   // clipboard on its own). Both modes apply
-  // anywhere in the page — the composer textarea (chip-aware via the
-  // composer's own copy handler), chat messages, code blocks. A stable-window
+  // anywhere in the page — the composer editor (chip-aware via the composer's
+  // own copy handler), chat messages, code blocks. A stable-window
   // debounce keeps mid-drag partial selections out; the toolbar is dismissed
   // by collapsing the selection, Escape, scrolling, or clicking elsewhere.
   useEffect(() => {
     let timer: number | undefined
     let lastKey = ''
-    let dragStartedInTextarea = false
+    let dragStartedInEditor = false
 
     const selectionRect = (): DOMRect | null => {
       try {
@@ -450,19 +475,19 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
           if (rect.width > 0 || rect.height > 0) return rect
         }
       } catch { /* no range for textarea selections in some engines */ }
-      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
-      if (textarea !== null && document.activeElement === textarea) {
-        const rect = textarea.getBoundingClientRect()
+      const host = editorHost()
+      if (host !== null && document.activeElement === host) {
+        const rect = host.getBoundingClientRect()
         if (rect.width > 0 || rect.height > 0) return rect
       }
       return null
     }
 
-    const copyText = (text: string, key: string, focusTarget?: HTMLTextAreaElement): void => {
+    const copyText = (text: string, key: string, focusHost?: HTMLElement): void => {
       if (key === lastKey) return // unchanged selection: already copied
       lastKey = key
-      if (focusTarget !== undefined && document.activeElement !== focusTarget) {
-        focusTarget.focus({ preventScroll: true })
+      if (focusHost !== undefined && document.activeElement !== focusHost) {
+        focusEditor(focusHost)
       }
       let ok = false
       try {
@@ -485,15 +510,14 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
 
-      // 1) Composer textarea selection (the composer's own handler expands
+      // 1) Composer editor selection (the composer's own handler expands
       //    chips; only while it is the active selection or a drag started in
-      //    it — a stale textarea selection must not shadow a chat selection).
-      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
-      if (textarea !== null && (document.activeElement === textarea || dragStartedInTextarea)) {
-        const start = textarea.selectionStart ?? 0
-        const end = textarea.selectionEnd ?? start
-        if (end > start) {
-          copyText(textarea.value.slice(start, end), `ta:${start}:${end}`, textarea)
+      //    it — a stale editor selection must not shadow a chat selection).
+      const host = editorHost()
+      if (host !== null && (document.activeElement === host || dragStartedInEditor)) {
+        const text = editorSelectedText(host)
+        if (text !== '') {
+          copyText(text, `ed:${text}`, host)
           return
         }
       }
@@ -508,9 +532,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
 
     const onMouseDown = (e: MouseEvent): void => {
       if (e.button !== 0) return
-      const target = e.target
-      dragStartedInTextarea =
-        target instanceof HTMLTextAreaElement && target.closest(COMPOSER_CARD) !== null
+      dragStartedInEditor = isEditorTarget(e.target)
     }
 
     // 引用: insert the FULL selected text into the composer as a markdown
@@ -521,12 +543,12 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
     const quoteSelection = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
-      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
-      if (textarea === null) return
-      const textareaFocused = document.activeElement === textarea
+      const host = editorHost()
+      if (host === null) return
+      const hostFocused = document.activeElement === host
       let text = ''
-      if (textareaFocused && (textarea.selectionStart ?? 0) < (textarea.selectionEnd ?? 0)) {
-        text = textarea.value.slice(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0)
+      if (hostFocused) {
+        text = editorSelectedText(host)
       } else {
         const sel = document.getSelection()
         if (sel !== null && !sel.isCollapsed) text = sel.toString()
@@ -537,7 +559,7 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       // input, rendered as a proper blockquote when sent.
       const quoted = '> ' + text.replace(/\n/g, '\n> ')
       const draft = live.draft
-      const caret = textareaFocused ? (textarea.selectionStart ?? draft.length) : draft.length
+      const caret = hostFocused ? (editorSelectionOffsets(host)?.start ?? draft.length) : draft.length
       // A blank line before the quote separates it from prior text; a SINGLE
       // newline after lets the next input start on the line right below it.
       const lead = caret > 0 && draft[caret - 1] !== '\n' ? '\n\n' : caret > 0 ? '\n' : ''
@@ -546,8 +568,8 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
       live.inputActions.setDraft(next)
       const pos = caret + lead.length + quoted.length + tail.length
       requestAnimationFrame(() => {
-        textarea.focus({ preventScroll: true })
-        textarea.setSelectionRange(pos, pos)
+        focusEditor(host)
+        setEditorCaret(host, pos)
       })
       flashCopied(null, T('pill.quoted'))
     }
@@ -559,13 +581,13 @@ export function InputHistory({ useInput, useSession, inputActions, sessionId }: 
         return
       }
       const mode = getPrefs().copyMode
-      const textarea = document.querySelector<HTMLTextAreaElement>(`${COMPOSER_CARD} textarea`)
-      const taActive = textarea !== null
-        && (document.activeElement === textarea || dragStartedInTextarea)
-        && (textarea.selectionStart ?? 0) < (textarea.selectionEnd ?? 0)
+      const host = editorHost()
+      const editorActive = host !== null
+        && (document.activeElement === host || dragStartedInEditor)
+        && editorSelectedText(host) !== ''
       const sel = document.getSelection()
       const domActive = sel !== null && !sel.isCollapsed
-      if (!taActive && !domActive) {
+      if (!editorActive && !domActive) {
         window.clearTimeout(timer)
         hideSelectionToolbar()
         return
