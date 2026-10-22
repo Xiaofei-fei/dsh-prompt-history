@@ -176,7 +176,7 @@ function paint(): boolean {
   // A popup covering the composer outranks the overlay's own layer; drop just
   // below it so the panel covers the ghost instead of the ghost bleeding around
   // the panel. Restored to the stylesheet default as soon as it closes.
-  sitBelowCover(el, box, card ?? painted.host)
+  sitBelowCover(el, box, painted.host)
   const style = window.getComputedStyle(card ?? painted.host)
   el.classList.toggle(`${CLASS}--pending`, painted.pending === true)
   const textEl = document.createElement('span')

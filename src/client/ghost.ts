@@ -157,7 +157,7 @@ function paint(): boolean {
   // Same rule as the suggestion overlay: never float above a popup that covers
   // the caret; sit just below it instead.
   const width = el.getBoundingClientRect().width
-  sitBelowCover(el, { left: rect.right, top: rect.top, width: Math.max(1, width), height: rect.height }, card ?? shown.host)
+  sitBelowCover(el, { left: rect.right, top: rect.top, width: Math.max(1, width), height: rect.height }, shown.host)
   return true
 }
 

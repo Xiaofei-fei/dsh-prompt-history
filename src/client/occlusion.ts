@@ -89,18 +89,50 @@ export function coveringZIndex(box: Box, probe: Element | null): number | null {
 }
 
 /**
- * Keep `el` just below whatever covers `box`, or on its stylesheet default when
- * nothing does.
+ * Keep `el` behind whatever covers `box`.
  *
- * The offset is recomputed on every paint, which runs on a 250 ms tick and on
- * every viewport change, so the overlay returns to its normal layer as soon as
- * the popup closes.
+ * Two cases, because a cover is not always a popup:
+ *
+ * - the cover has a numeric z-index (menus, dialogs, poppers) — sit just below
+ *   it, so the panel covers the hint exactly where they overlap and the hint
+ *   keeps its place in the composer;
+ * - the cover has no numeric z-index (an approval card rendered in normal flow
+ *   above the composer) — there is no layer to slide under, so hide the hint
+ *   softly: the node, its text and the tick stay alive, and the hint is back on
+ *   the next paint after the cover goes away.
+ *
+ * The state is recomputed on every paint, which runs on a 250 ms tick and on
+ * every viewport change, so both cases recover on their own.
  *
  * @param el - the overlay element to restack.
  * @param box - the box the overlay is drawn into, in viewport coordinates.
- * @param probe - the composer element the overlay belongs to.
+ * @param probe - the editor element the overlay belongs to; its content never
+ *   counts as a cover.
  */
 export function sitBelowCover(el: HTMLElement, box: Box, probe: Element | null): void {
+  const covered = coveringElements(box, probe).some((el2) => intersects(box, el2))
+  if (!covered) {
+    el.style.zIndex = ''
+    el.style.visibility = ''
+    return
+  }
   const z = coveringZIndex(box, probe)
-  el.style.zIndex = z === null ? '' : String(z - 1)
+  if (z === null) {
+    el.style.visibility = 'hidden'
+    return
+  }
+  el.style.zIndex = String(z - 1)
+  el.style.visibility = ''
+}
+
+/** Whether `el`'s border box intersects `box`. */
+function intersects(box: Box, el: Element): boolean {
+  const rect = el.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return false
+  return (
+    rect.right > box.left &&
+    rect.left < box.left + box.width &&
+    rect.bottom > box.top &&
+    rect.top < box.top + box.height
+  )
 }
