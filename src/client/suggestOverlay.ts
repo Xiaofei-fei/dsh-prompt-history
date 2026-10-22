@@ -9,6 +9,7 @@
  * @module dsh-prompt-history/client/suggestOverlay
  */
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
+import { sitBelowCover } from './occlusion.ts'
 
 const CLASS = 'dsh-ph-suggest'
 /** Toggled on the composer card while a prediction is on screen. */
@@ -172,6 +173,10 @@ function paint(): boolean {
   const box = editorBox(painted.host)
   if (box === null) return false
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
+  // A popup covering the composer outranks the overlay's own layer; drop just
+  // below it so the panel covers the ghost instead of the ghost bleeding around
+  // the panel. Restored to the stylesheet default as soon as it closes.
+  sitBelowCover(el, box, card ?? painted.host)
   const style = window.getComputedStyle(card ?? painted.host)
   el.classList.toggle(`${CLASS}--pending`, painted.pending === true)
   const textEl = document.createElement('span')

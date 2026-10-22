@@ -9,6 +9,7 @@
  * measured the ghost simply stays hidden — a misplaced hint is worse than none.
  */
 import { COMPOSER_CARD } from './editor.ts'
+import { sitBelowCover } from './occlusion.ts'
 
 const GHOST_CLASS = 'dsh-ph-ghost'
 let node: HTMLDivElement | null = null
@@ -153,6 +154,10 @@ function paint(): boolean {
   el.style.top = `${rect.top}px`
   el.style.height = `${rect.height}px`
   el.style.lineHeight = `${rect.height}px`
+  // Same rule as the suggestion overlay: never float above a popup that covers
+  // the caret; sit just below it instead.
+  const width = el.getBoundingClientRect().width
+  sitBelowCover(el, { left: rect.right, top: rect.top, width: Math.max(1, width), height: rect.height }, card ?? shown.host)
   return true
 }
 
