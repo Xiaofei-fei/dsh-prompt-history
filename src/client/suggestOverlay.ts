@@ -62,7 +62,10 @@ function tick(): void {
     stopTick()
     return
   }
-  if (!current.host.isConnected) {
+  // Same rule as the ghost: a mounted but unmeasurable host means the composer
+  // was hidden behind a seat a card took over (an ask_user_question card), and a
+  // repaint cannot move the overlay to a meaningful place from there.
+  if (!current.host.isConnected || editorBox(current.host) === null) {
     hideSuggestion()
     return
   }

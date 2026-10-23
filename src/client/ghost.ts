@@ -111,7 +111,12 @@ function startTick(): void {
       stopTick()
       return
     }
-    if (!current.host.isConnected) {
+    // A connected host can still be unmeasurable: the harness keeps the ordinary
+    // composer bar mounted but hides it behind a `display:none` seat while another
+    // surface (e.g. an ask_user_question card) owns that seat. `paint()` cannot
+    // move the ghost then, and leaving it at its last fixed position draws the
+    // hint on top of that surface — drop it instead of repainting a stale box.
+    if (!current.host.isConnected || caretRect(current.host) === null) {
       hideGhost()
       return
     }

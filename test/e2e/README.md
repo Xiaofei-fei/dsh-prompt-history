@@ -12,7 +12,7 @@ pnpm test:e2e        # or: pnpm test  (typecheck + e2e)
 
 | Suite | Checks |
 |---|---|
-| `overlay.mjs` | overlay aligns with the composer content box · follows a layout change · **prediction disappears when real text is typed** (the stray-ghost regression) · **ghost sits below a popup that covers the composer** (occlusion) · placeholder is restored when the overlay hides |
+| `overlay.mjs` | overlay aligns with the composer content box · follows a layout change · **prediction disappears when real text is typed** (the stray-ghost regression) · **ghost sits below a popup that covers the composer** (occlusion) · **prediction disappears when a question card takes the composer seat** (occlusion) · placeholder is restored when the overlay hides |
 | `composer.mjs` | ↑ recalls the newest prompt · ↓ restores the pending line · prefix search · completion ghost + Tab · Ctrl+R reverse search · **quote reads the conversation selection while the composer holds focus** · chat TOC opens with entries |
 | `sidechat.mjs` | side chat on by default · settings toggle reads enabled + bridge connected · panel opens and forks a thread · **the toolbar action disappears when the feature is off** |
 

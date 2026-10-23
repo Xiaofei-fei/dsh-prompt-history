@@ -167,4 +167,42 @@ export async function overlaySuite(page, check) {
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })
+
+  // 6) Regression: a question card owns the composer seat by hiding the ordinary
+  // composer bar behind a `display:none` chain-overlay anchor, while the editor
+  // itself stays mounted (and `isConnected`). The plugin used to keep repainting
+  // the prediction at its last fixed position, on top of the card.
+  await clearComposer(page)
+  await seamShowSuggestion(page)
+  await sleep(300)
+  const beforeSeatHidden = await overlayGeometry(page)
+  const seatHidden = await page.evaluate(() => {
+    const editor = document.querySelector('[data-composer-input]')
+    if (editor === null) return null
+    // The harness hides the ordinary composer bar behind a `display:none` anchor
+    // when another surface (an ask_user_question card) owns the composer seat; a
+    // missing anchor falls back to the composer card so the check still exercises
+    // "mounted but unmeasurable" either way.
+    const anchor = document.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
+      ?? editor.closest('[data-composer-card]')
+      ?? editor
+    anchor.dataset.e2eDisplay = anchor.style.display
+    anchor.dataset.e2eDisplayHidden = '1'
+    anchor.style.display = 'none'
+    return { display: getComputedStyle(anchor).display }
+  })
+  await sleep(900)
+  const whileSeatHidden = await overlayGeometry(page)
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-e2e-display-hidden="1"]')
+    if (el === null) return
+    el.style.display = el.dataset.e2eDisplay ?? ''
+    delete el.dataset.e2eDisplay
+    delete el.dataset.e2eDisplayHidden
+  })
+  check('prediction disappears when the composer seat is hidden',
+    beforeSeatHidden.present === true
+      && seatHidden !== null
+      && whileSeatHidden.present === false,
+    { beforeSeatHidden, seatHidden, whileSeatHidden })
 }
