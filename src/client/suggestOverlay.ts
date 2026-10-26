@@ -211,7 +211,14 @@ function paint(): boolean {
     return false
   }
   const box = editorBox(painted.host)
-  if (box === null) return false
+  if (box === null) {
+    // Same rule as the ghost: a host that no longer renders (ask_user_question
+    // takes over the composer seat, leaving the bar inside a display:none anchor)
+    // must drop the overlay instead of pinning it over the replacing card. A
+    // transient 0x0 keeps it, so a remount does not flicker.
+    if (painted.host.getClientRects().length === 0) hideSuggestion()
+    return false
+  }
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
   // A popup covering the composer outranks the overlay's own layer; drop just
   // below it so the panel covers the ghost instead of the ghost bleeding around

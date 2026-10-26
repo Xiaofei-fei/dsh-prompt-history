@@ -166,7 +166,17 @@ function paint(): boolean {
   const el = node
   if (shown === null || el === null) return false
   const rect = caretRect(shown.host)
-  if (rect === null) return false
+  if (rect === null) {
+    // The host can be unmeasurable two ways: the composer was unmounted
+    // (disconnected — the tick already drops it) or it is still connected but an
+    // ancestor hides it, which is what happens when ask_user_question takes over
+    // the composer seat: the bar stays mounted inside a display:none anchor and
+    // the question card renders in its place. Silently returning would pin the
+    // ghost at its last fixed coordinates, on top of that card. A merely
+    // transient 0x0 (a remount frame) keeps the ghost instead of flickering.
+    if (shown.host.getClientRects().length === 0) hideGhost()
+    return false
+  }
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
   const font = composerTypeStyle(card).font
   el.textContent = shown.text

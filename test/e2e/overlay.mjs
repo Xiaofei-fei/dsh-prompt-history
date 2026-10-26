@@ -191,6 +191,34 @@ export async function overlaySuite(page, check) {
     { rectCalls: burst, afterBurst })
   await seamHideSuggestion(page)
 
+  // 7) ask_user_question takes over the composer seat: the bar stays mounted but
+  //    its anchor is display:none and the question card renders in its place. The
+  //    host is connected yet unmeasurable, and the old prediction must not stay
+  //    pinned on top of that card (PR #11).
+  await clearComposer(page)
+  await seamShowSuggestion(page)
+  await sleep(300)
+  const hidden = await page.evaluate(() => {
+    const seat = document.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
+      ?? document.querySelector('[data-composer-card]')
+    if (seat === null) return null
+    const previous = seat.style.display
+    seat.style.display = 'none'
+    return { restored: previous, hook: seat.hasAttribute('data-chain-overlay-fallback') ? 'chain' : 'card' }
+  })
+  await sleep(1600)
+  const afterSeatHidden = await page.evaluate(() => document.querySelector('.dsh-ph-suggest') !== null)
+  await page.evaluate(() => {
+    const seat = document.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
+      ?? document.querySelector('[data-composer-card]')
+    if (seat !== null) seat.style.display = ''
+  })
+  await sleep(300)
+  check('overlay drops when the composer seat stops rendering',
+    hidden !== null && afterSeatHidden === false,
+    { hidden, stillPresent: afterSeatHidden })
+  await seamHideSuggestion(page)
+
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })
