@@ -11,7 +11,7 @@
 import { COMPOSER_CARD } from './editor.ts'
 import { composerTypeStyle, editorLineHeight, invalidateTypeStyle } from './typeStyle.ts'
 import { scheduleFrame } from './frame.ts'
-import { asSelfWrite, subscribeOcclusionDirty } from './occlusion.ts'
+import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
 import { sitBelowCover } from './occlusion.ts'
 
 const GHOST_CLASS = 'dsh-ph-ghost'
@@ -44,11 +44,17 @@ subscribeOcclusionDirty(() => { scheduleFrame(paint) })
 export function hideGhost(): void {
   stopTick()
   stopResizeWatch()
+  paintedSignature = ''
   current = null
   if (node !== null) {
     node.remove()
     node = null
   }
+}
+
+/** Signature component: sub-pixel churn must not count as a change. */
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }
 
 /** A caret box with a usable height, or null. */
@@ -111,6 +117,10 @@ let current: { readonly text: string; readonly host: HTMLTextAreaElement | HTMLE
 let tickTimer: number | null = null
 /** Watches the host's size: a sidebar toggle resizes the column, not the window. */
 let resizeObserver: ResizeObserver | null = null
+/** What the DOM currently shows; an unchanged paint is skipped (issue #13). */
+let paintedSignature = ''
+/** Width measured on the last real write: restacking needs it without re-reading. */
+let paintedWidth = 0
 
 /** Start following the caret while the ghost is on screen. */
 function startTick(): void {
@@ -124,7 +134,8 @@ function startTick(): void {
       hideGhost()
       return
     }
-    // Geometry is measured in the coalesced frame, not here.
+    // One queued paint as the safety net for changes no event reports; the
+    // painted-signature guard keeps it a measurement, not a rebuild.
     scheduleFrame(paint)
   }, 1000)
 }
@@ -189,18 +200,24 @@ function paint(): boolean {
   // above it — that lands the two texts on one baseline.
   const line = editorLineHeight(shown.host) || rect.height
   const top = rect.top - (line - rect.height) / 2
-  asSelfWrite(() => {
-  el.textContent = shown.text
-  el.style.font = type.font
-  el.style.left = `${rect.right}px`
-  el.style.top = `${top}px`
-  el.style.height = `${line}px`
-  el.style.lineHeight = `${line}px`
+  const signature = [shown.text, round(rect.right), round(top), round(line), round(rect.height), type.font].join('\u0000')
+  // The occlusion decision is per overlay and must run on every paint (it is
+  // internally gated); only the DOM rebuild waits for a change.
+  if (signature !== paintedSignature) {
+    asSelfWrite(() => {
+      el.textContent = shown.text
+      el.style.font = type.font
+      el.style.left = `${rect.right}px`
+      el.style.top = `${top}px`
+      el.style.height = `${line}px`
+      el.style.lineHeight = `${line}px`
+    })
+    paintedWidth = el.getBoundingClientRect().width
+    paintedSignature = signature
+  }
   // Same rule as the suggestion overlay: never float above a popup that covers
   // the caret; sit just below it instead.
-  const width = el.getBoundingClientRect().width
-  sitBelowCover(el, { left: rect.right, top: rect.top, width: Math.max(1, width), height: rect.height }, shown.host)
-  })
+  sitBelowCover(el, { left: rect.right, top, width: Math.max(1, paintedWidth), height: line }, shown.host)
   return true
 }
 

@@ -10,7 +10,7 @@
  */
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
-import { asSelfWrite, subscribeOcclusionDirty } from './occlusion.ts'
+import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
 import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
 import { sitBelowCover } from './occlusion.ts'
 
@@ -28,6 +28,12 @@ let tickTimer: number | null = null
 let current: Painted | null = null
 /** Watches the host's size: a sidebar toggle resizes the column, not the window. */
 let resizeObserver: ResizeObserver | null = null
+/**
+ * What the DOM currently shows. Painting rebuilds two spans and rewrites the
+ * inline geometry, so an unchanged paint is skipped: the fallback tick used to
+ * rebuild identical content once a second (issue #13's residual cost).
+ */
+let paintedSignature = ''
 
 /** One painted suggestion: the content plus the host it must stay glued to. */
 interface Painted {
@@ -92,6 +98,9 @@ function tick(): void {
     return
   }
   if (node.style.visibility !== 'hidden' && current.hidePlaceholder) hidePlaceholders()
+  // Queue one paint as the safety net for layout changes no event reports — a
+  // popup that becomes visible through a class/style change is one. With the
+  // painted-signature guard this costs a measurement, not a rebuild.
   scheduleFrame(paint)
 }
 
@@ -176,6 +185,7 @@ export function suggestionVisible(): boolean {
 export function hideSuggestion(): void {
   stopTick()
   stopResizeWatch()
+  paintedSignature = ''
   current = null
   restorePlaceholders()
   if (node !== null) {
@@ -232,11 +242,19 @@ function paint(): boolean {
     return false
   }
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
+  const style = composerTypeStyle(card)
+  const signature = [
+    painted.text, painted.hint, painted.pending === true ? '1' : '0',
+    round(box.left), round(box.top), round(box.width), round(box.height), round(box.line),
+    style.font, style.letterSpacing, round(style.fontSize),
+  ].join('\u0000')
   // A popup covering the composer outranks the overlay's own layer; drop just
   // below it so the panel covers the ghost instead of the ghost bleeding around
-  // the panel. Restored to the stylesheet default as soon as it closes.
+  // the panel. Restacked on every paint: the decision is per overlay, and the
+  // call is internally gated on "the page changed or a cover persisted".
   sitBelowCover(el, box, painted.host)
-  const style = composerTypeStyle(card)
+  // Nothing moved: the DOM already shows exactly this, so skip the rebuild.
+  if (signature === paintedSignature) return true
   // A cover with no layer of its own hides the hint (see occlusion.ts). The
   // composer's placeholder then has to come back — an empty field with neither
   // the hint nor the placeholder reads as a broken composer.
@@ -273,7 +291,13 @@ function paint(): boolean {
   el.style.lineHeight = `${box.line}px`
   hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
   })
+  paintedSignature = signature
   return true
+}
+
+/** Signature component: sub-pixel churn must not count as a change. */
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }
 
 /**

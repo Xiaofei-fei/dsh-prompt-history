@@ -13,6 +13,7 @@
  *
  * @module dsh-prompt-history/client/occlusion
  */
+import { onFrameEnd } from './frame.ts'
 
 /** A box in viewport coordinates, as measured for the composer. */
 export interface Box {
@@ -42,9 +43,15 @@ const POPUP_SELECTOR = [
  * clean frame costs no hit tests at all.
  */
 let domDirty = true
-/** Whether the last probe found a cover (sticky: an in-flow card can persist). */
-let lastCovered = false
+/**
+ * Per-overlay cover state. Two overlays paint in the same frame; a shared flag
+ * would let whichever painted first decide for the other one (and clear the
+ * page-level dirty flag before its sibling probed).
+ */
+const coveredByOverlay = new WeakMap<Element, boolean>()
 let observer: MutationObserver | null = null
+/** The flag is page-level; every overlay in the frame must still see it. */
+onFrameEnd(() => { domDirty = false })
 /**
  * Depth of our own DOM writes. The overlays hide placeholders and restyle
  * themselves on every paint, which are mutations too; counting them keeps our own
@@ -53,6 +60,18 @@ let observer: MutationObserver | null = null
 let selfWrites = 0
 const dirtyListeners = new Set<() => void>()
 let notifyTimer: number | null = null
+
+/**
+ * Whether the next paint still owes an occlusion probe.
+ *
+ * A repaint that would change nothing must still run when the page changed (or a
+ * cover persisted), because restacking is an occlusion decision rather than a
+ * content one.
+ * @returns true when a probe is pending.
+ */
+export function occlusionNeedsProbe(): boolean {
+  return domDirty
+}
 
 /**
  * Run a DOM write that must not count as "the page changed".
@@ -76,7 +95,12 @@ export function subscribeOcclusionDirty(listener: () => void): void {
   dirtyListeners.add(listener)
 }
 
-/** Announce a page change once per burst instead of once per mutation. */
+/**
+ * Announce a page change once per burst instead of once per mutation.
+ *
+ * `domDirty` is cleared at the end of the frame that probed, so every overlay in
+ * that frame still sees it (see frame.ts `onFrameEnd`).
+ */
 function notifyDirty(): void {
   domDirty = true
   if (notifyTimer !== null) return
@@ -185,15 +209,15 @@ export function sitBelowCover(el: HTMLElement, box: Box, probe: Element | null):
   watchDom()
   // Off-screen box: nothing can be visible over it, so nothing to restack.
   const inViewport = box.top + box.height > 0 && box.top < window.innerHeight
-  // Clean DOM and no cover last time: skip the hit tests entirely.
-  if (!inViewport || (!domDirty && !lastCovered && document.querySelector(POPUP_SELECTOR) === null)) {
+  const wasCovered = coveredByOverlay.get(el) === true
+  // Clean page and no cover last time: skip the hit tests entirely.
+  if (!inViewport || (!domDirty && !wasCovered && document.querySelector(POPUP_SELECTOR) === null)) {
     el.style.zIndex = ''
     el.style.visibility = ''
     return
   }
-  domDirty = false
   const covered = coveringElements(box, probe).some((el2) => intersects(box, el2))
-  lastCovered = covered
+  coveredByOverlay.set(el, covered)
   const z = covered ? coveringZIndex(box, probe) : null
   // Restyling our own node is not a page change: exempt it from the dirty count,
   // or this module would keep its own gate open forever.

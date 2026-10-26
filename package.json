@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-history",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "description": "DSH web plugin for the composer: shell-style prompt history (Up/Down with prefix search, Ctrl+R reverse search), Codex-style history completion and next-prompt prediction ghosted in the empty input (Tab or → to accept), a selection toolbar (copy / quote / ask in side chat), right-click paste, a draggable chat TOC, and a side chat that runs a parallel agent thread in the right sidebar — forked with the full conversation, dockable/splittable/floatable, with bidirectional bridging to the main chat and a parallel-write guard. Fully internationalized (zh/en), no configuration required.",
   "keywords": [
     "autocomplete",

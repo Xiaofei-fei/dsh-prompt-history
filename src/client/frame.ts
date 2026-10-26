@@ -14,6 +14,7 @@
 type FrameTask = () => void
 
 const pending = new Set<FrameTask>()
+const endListeners = new Set<() => void>()
 let handle: number | null = null
 
 /** Run the queued tasks in the next frame, then forget them. */
@@ -29,6 +30,26 @@ function flush(): void {
       // One failing task must not starve the others.
     }
   }
+  // Frame-end work sees every task that ran in this frame; it is how a
+  // page-level "changed since last probe" flag is consumed exactly once per
+  // frame instead of once per subscriber.
+  for (const listener of [...endListeners]) {
+    try {
+      listener()
+    } catch {
+      // Same isolation as above.
+    }
+  }
+}
+
+/**
+ * Run a callback at the end of every frame that ran queued work.
+ * @param listener - the callback; it may not schedule more work.
+ * @returns disposer removing it.
+ */
+export function onFrameEnd(listener: () => void): () => void {
+  endListeners.add(listener)
+  return () => { endListeners.delete(listener) }
 }
 
 /**
