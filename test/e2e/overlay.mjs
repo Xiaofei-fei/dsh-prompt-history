@@ -8,7 +8,7 @@
  * @module dsh-prompt-history/test/e2e/overlay
  */
 import {
-  clearComposer, composerText, focusComposer, hostIdentity, openFirstSession,
+  clearComposer, composerText, focusComposer, hostIdentity, normalizePrompt, openFirstSession,
   overlayGeometry, seamHideSuggestion, seamShowSuggestion, sleep,
 } from './harness.mjs'
 
@@ -218,6 +218,54 @@ export async function overlaySuite(page, check) {
     hidden !== null && afterSeatHidden === false,
     { hidden, stillPresent: afterSeatHidden })
   await seamHideSuggestion(page)
+
+  // 8) Issue #12: the ghost must sit on the composer's line box, not on the caret
+  //    rect's height, or it lands below the draft baseline and reads as a smear.
+  //    A wider line box than the caret makes the difference observable.
+  await clearComposer(page)
+  await page.evaluate(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-e2e-lineheight', '1')
+    style.textContent = '[data-composer-card] [data-composer-input]{line-height:34px !important}'
+    document.head.appendChild(style)
+  })
+  await sleep(300)
+  // A caret must exist for the ghost to anchor to: type one character first.
+  await page.evaluate(() => { const el = document.querySelector('[data-composer-input]'); if (el) el.focus() })
+  await page.keyboard.type('a')
+  await sleep(200)
+  const ghost = await page.evaluate(() => {
+    const editor = document.querySelector('[data-composer-input]')
+    const seam = window.__dshPhTest
+    if (editor === null || seam === undefined) return null
+    seam.showGhost('基线校验后缀', editor)
+    const node = document.querySelector('.dsh-ph-ghost')
+    if (node === null) return null
+    const hostLine = Number.parseFloat(getComputedStyle(editor).lineHeight)
+    const ghostLine = Number.parseFloat(getComputedStyle(node).lineHeight)
+    const caret = document.getSelection()?.getRangeAt(0)?.getBoundingClientRect()
+    return {
+      hostLine,
+      ghostLine,
+      ghostHeight: Number.parseFloat(getComputedStyle(node).height),
+      ghostTop: Number.parseFloat(getComputedStyle(node).top),
+      caretTop: caret === undefined ? null : caret.top,
+      caretHeight: caret === undefined ? null : caret.height,
+    }
+  })
+  await page.evaluate(() => {
+    const style = document.querySelector('[data-e2e-lineheight]')
+    if (style !== null) style.remove()
+    window.__dshPhTest?.hideGhost()
+  })
+  const baselineOk = ghost !== null
+    && Math.abs(ghost.ghostLine - ghost.hostLine) <= 1.5
+    && Math.abs(ghost.ghostHeight - ghost.hostLine) <= 1.5
+    && (ghost.caretTop === null || Math.abs(ghost.ghostTop - (ghost.caretTop - (ghost.hostLine - ghost.caretHeight) / 2)) <= 2)
+  check('ghost paints on the composer line box, not the caret height',
+    baselineOk,
+    { ghost })
+  await sleep(200)
 
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,

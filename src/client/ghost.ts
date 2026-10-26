@@ -9,7 +9,7 @@
  * measured the ghost simply stays hidden — a misplaced hint is worse than none.
  */
 import { COMPOSER_CARD } from './editor.ts'
-import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
+import { composerTypeStyle, editorLineHeight, invalidateTypeStyle } from './typeStyle.ts'
 import { scheduleFrame } from './frame.ts'
 import { sitBelowCover } from './occlusion.ts'
 
@@ -178,13 +178,19 @@ function paint(): boolean {
     return false
   }
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
-  const font = composerTypeStyle(card).font
+  const type = composerTypeStyle(card)
+  // The line box, not the caret rect: they differ by a couple of px, and forcing
+  // the caret height puts the ghost below the draft's baseline (issue #12). The
+  // caret sits centred in its line box, so the box top is half the difference
+  // above it — that lands the two texts on one baseline.
+  const line = editorLineHeight(shown.host) || rect.height
+  const top = rect.top - (line - rect.height) / 2
   el.textContent = shown.text
-  el.style.font = font
+  el.style.font = type.font
   el.style.left = `${rect.right}px`
-  el.style.top = `${rect.top}px`
-  el.style.height = `${rect.height}px`
-  el.style.lineHeight = `${rect.height}px`
+  el.style.top = `${top}px`
+  el.style.height = `${line}px`
+  el.style.lineHeight = `${line}px`
   // Same rule as the suggestion overlay: never float above a popup that covers
   // the caret; sit just below it instead.
   const width = el.getBoundingClientRect().width

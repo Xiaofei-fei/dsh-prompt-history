@@ -57,9 +57,18 @@ export async function composerSuite(page, check) {
   await page.keyboard.press('Tab')
   await sleep(500)
   const completed = (await composerText(page) ?? '').trim()
+  // The rule is "the ghost is the suffix of a matching history entry", not "the
+  // newest DOM row equals the newest history entry" — the matched entry can be an
+  // older prompt (the DOM row may also carry a trailing clock stamp).
+  const ghostNorm = normalizePrompt(ghost)
+  const completedNorm = normalizePrompt(completed)
+  const ghostIsSuffix = ghostNorm !== ''
+    && completedNorm.startsWith(prefix)
+    && completedNorm.length > prefix.length
+    && completedNorm.slice(prefix.length) === ghostNorm
   check('history completion ghosts the suffix and Tab accepts it',
-    ghost !== null && ghost !== '' && normalizePrompt(completed) === normalizePrompt(lastPrompt),
-    { prefix, ghost: (ghost ?? '').slice(0, 20), completed: completed.slice(0, 30) })
+    ghostIsSuffix,
+    { prefix, ghost: ghostNorm.slice(0, 26), completed: completedNorm.slice(0, 40), newestRow: normalizePrompt(lastPrompt).slice(0, 40) })
 
   // 5) Ctrl+R opens the reverse search.
   await clearComposer(page)
