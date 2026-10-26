@@ -10,6 +10,7 @@
  */
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
+import { asSelfWrite, subscribeOcclusionDirty } from './occlusion.ts'
 import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
 import { sitBelowCover } from './occlusion.ts'
 
@@ -108,6 +109,11 @@ function onViewportChange(): void {
 
 /** Hide the composer placeholder (inline + via the card class for re-renders). */
 function hidePlaceholders(): void {
+  asSelfWrite(() => hidePlaceholdersInner())
+}
+
+/** The actual placeholder hiding (wrapped as a self write by the caller). */
+function hidePlaceholdersInner(): void {
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
   card?.classList.add(CARD_CLASS)
   for (const el of document.querySelectorAll<HTMLElement>(PLACEHOLDER)) {
@@ -121,9 +127,11 @@ function hidePlaceholders(): void {
 
 /** Restore every placeholder this overlay hid. */
 function restorePlaceholders(): void {
-  document.querySelector<HTMLElement>(COMPOSER_CARD)?.classList.remove(CARD_CLASS)
-  for (const { el, prev } of hiddenPlaceholders) el.style.visibility = prev
-  hiddenPlaceholders = []
+  asSelfWrite(() => {
+    document.querySelector<HTMLElement>(COMPOSER_CARD)?.classList.remove(CARD_CLASS)
+    for (const { el, prev } of hiddenPlaceholders) el.style.visibility = prev
+    hiddenPlaceholders = []
+  })
 }
 
 /** Create the overlay style tag once. */
@@ -154,6 +162,10 @@ export function installSuggestStyle(): void {
   window.addEventListener('resize', () => { invalidateTypeStyle(); onViewportChange() }, { passive: true })
   window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
 }
+
+// A popup or card appearing must schedule a frame: the occlusion probe is gated
+// on "nothing changed", so the change itself has to wake the paint.
+subscribeOcclusionDirty(() => { scheduleFrame(paint) })
 
 /** Is a suggestion currently on screen? */
 export function suggestionVisible(): boolean {
@@ -249,6 +261,7 @@ function paint(): boolean {
   } else {
     hintEl.textContent = ` ${painted.hint}`
   }
+  asSelfWrite(() => {
   el.textContent = ''
   el.append(textEl, hintEl)
   el.style.font = style.font
@@ -259,6 +272,7 @@ function paint(): boolean {
   el.style.height = `${box.height}px`
   el.style.lineHeight = `${box.line}px`
   hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
+  })
   return true
 }
 

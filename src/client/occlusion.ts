@@ -32,6 +32,78 @@ const POPUP_SELECTOR = [
 ].join(',')
 
 /**
+ * Probing is the last cost left in the paint pass: five hit tests plus a popup
+ * query, once per painted frame. Two cheap gates keep it off the common path —
+ * no overlay is covered while nothing on the page has changed.
+ *
+ * `domDirty` starts true so the first paint always probes; any mutation sets it
+ * again (streaming a turn keeps it set, which is correct: cards and menus appear
+ * during a turn). Scrolling does not mutate the DOM, so a scroll burst after one
+ * clean frame costs no hit tests at all.
+ */
+let domDirty = true
+/** Whether the last probe found a cover (sticky: an in-flow card can persist). */
+let lastCovered = false
+let observer: MutationObserver | null = null
+/**
+ * Depth of our own DOM writes. The overlays hide placeholders and restyle
+ * themselves on every paint, which are mutations too; counting them keeps our own
+ * writes from marking the page dirty forever (that would defeat the gate).
+ */
+let selfWrites = 0
+const dirtyListeners = new Set<() => void>()
+let notifyTimer: number | null = null
+
+/**
+ * Run a DOM write that must not count as "the page changed".
+ * @param write - the mutation to perform.
+ */
+export function asSelfWrite(write: () => void): void {
+  selfWrites += 1
+  try {
+    write()
+  } finally {
+    // MutationObserver callbacks are microtasks; the timer runs after them.
+    window.setTimeout(() => { selfWrites = Math.max(0, selfWrites - 1) }, 0)
+  }
+}
+
+/**
+ * Register a callback for "something on the page changed, probe again".
+ * @param listener - usually `() => scheduleFrame(paint)`.
+ */
+export function subscribeOcclusionDirty(listener: () => void): void {
+  dirtyListeners.add(listener)
+}
+
+/** Announce a page change once per burst instead of once per mutation. */
+function notifyDirty(): void {
+  domDirty = true
+  if (notifyTimer !== null) return
+  notifyTimer = window.setTimeout(() => {
+    notifyTimer = null
+    for (const listener of [...dirtyListeners]) {
+      try { listener() } catch { /* one faulty listener must not starve the others */ }
+    }
+  }, 200)
+}
+
+/** Watch the page so a newly mounted popup or card re-enables probing. */
+function watchDom(): void {
+  if (observer !== null || typeof MutationObserver !== 'function') return
+  observer = new MutationObserver(() => {
+    if (selfWrites > 0) return
+    notifyDirty()
+  })
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'open'],
+  })
+}
+
+/**
  * Points sampled across the box. Corners plus center catch partial overlaps,
  * which a single corner probe misses — a menu that only covers the left half
  * of the composer leaves the top-left corner untouched.
@@ -110,19 +182,34 @@ export function coveringZIndex(box: Box, probe: Element | null): number | null {
  *   counts as a cover.
  */
 export function sitBelowCover(el: HTMLElement, box: Box, probe: Element | null): void {
-  const covered = coveringElements(box, probe).some((el2) => intersects(box, el2))
-  if (!covered) {
+  watchDom()
+  // Off-screen box: nothing can be visible over it, so nothing to restack.
+  const inViewport = box.top + box.height > 0 && box.top < window.innerHeight
+  // Clean DOM and no cover last time: skip the hit tests entirely.
+  if (!inViewport || (!domDirty && !lastCovered && document.querySelector(POPUP_SELECTOR) === null)) {
     el.style.zIndex = ''
     el.style.visibility = ''
     return
   }
-  const z = coveringZIndex(box, probe)
-  if (z === null) {
-    el.style.visibility = 'hidden'
-    return
-  }
-  el.style.zIndex = String(z - 1)
-  el.style.visibility = ''
+  domDirty = false
+  const covered = coveringElements(box, probe).some((el2) => intersects(box, el2))
+  lastCovered = covered
+  const z = covered ? coveringZIndex(box, probe) : null
+  // Restyling our own node is not a page change: exempt it from the dirty count,
+  // or this module would keep its own gate open forever.
+  asSelfWrite(() => {
+    if (!covered) {
+      el.style.zIndex = ''
+      el.style.visibility = ''
+    } else if (z === null) {
+      // A cover with no numeric z-index (an in-flow card) has no layer to slide
+      // under, so the hint hides instead of floating over it.
+      el.style.visibility = 'hidden'
+    } else {
+      el.style.zIndex = String(z - 1)
+      el.style.visibility = ''
+    }
+  })
 }
 
 /** Whether `el`'s border box intersects `box`. */

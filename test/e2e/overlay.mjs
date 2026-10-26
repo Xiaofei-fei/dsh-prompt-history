@@ -267,6 +267,26 @@ export async function overlaySuite(page, check) {
     { ghost })
   await sleep(200)
 
+  // 9) The occlusion probe is the last per-frame cost: it must be skipped when
+  //    nothing on the page changed and no popup exists (a scroll burst does not
+  //    mutate the DOM).
+  await clearComposer(page)
+  await seamShowSuggestion(page)
+  await sleep(1400) // let one paint pass run and clear the dirty flag
+  const probeCost = await page.evaluate(async () => {
+    const original = document.elementFromPoint.bind(document)
+    let hits = 0
+    document.elementFromPoint = (...args) => { hits += 1; return original(...args) }
+    for (let i = 0; i < 40; i += 1) window.dispatchEvent(new Event('scroll'))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    document.elementFromPoint = original
+    return hits
+  })
+  check('occlusion probes are skipped while nothing can cover',
+    probeCost === 0,
+    { elementFromPointCalls: probeCost })
+  await seamHideSuggestion(page)
+
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })

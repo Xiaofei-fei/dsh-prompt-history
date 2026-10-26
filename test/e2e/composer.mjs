@@ -34,8 +34,16 @@ export async function composerSuite(page, check) {
     (restored ?? '').trim() === '',
     { restored: JSON.stringify((restored ?? '').slice(0, 20)) })
 
-  // 3) Prefix search: typing a prefix then ↑ jumps to a matching entry.
-  const prefix = (lastPrompt ?? '').trim().slice(0, 4)
+  // 3) Prefix search: typing a prefix then ↑ jumps to a matching entry. The
+  //    prefix must leave room to complete, and the newest message can be short
+  //    enough to be a prefix of itself — pick a longer prompt from the session.
+  const longPrompt = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
+      .map((row) => (row.textContent ?? '').trim())
+      .filter((text) => text.length > 16)
+    return rows[rows.length - 1] ?? null
+  })
+  const prefix = (longPrompt ?? lastPrompt ?? '').trim().slice(0, 4)
   await clearComposer(page)
   await page.keyboard.type(prefix)
   await sleep(300)

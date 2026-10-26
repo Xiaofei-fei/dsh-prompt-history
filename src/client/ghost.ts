@@ -11,6 +11,7 @@
 import { COMPOSER_CARD } from './editor.ts'
 import { composerTypeStyle, editorLineHeight, invalidateTypeStyle } from './typeStyle.ts'
 import { scheduleFrame } from './frame.ts'
+import { asSelfWrite, subscribeOcclusionDirty } from './occlusion.ts'
 import { sitBelowCover } from './occlusion.ts'
 
 const GHOST_CLASS = 'dsh-ph-ghost'
@@ -37,6 +38,9 @@ export function ghostVisible(): boolean {
 }
 
 /** Remove the ghost (idempotent). */
+subscribeOcclusionDirty(() => { scheduleFrame(paint) })
+
+/** Remove the ghost overlay (idempotent). */
 export function hideGhost(): void {
   stopTick()
   stopResizeWatch()
@@ -185,6 +189,7 @@ function paint(): boolean {
   // above it — that lands the two texts on one baseline.
   const line = editorLineHeight(shown.host) || rect.height
   const top = rect.top - (line - rect.height) / 2
+  asSelfWrite(() => {
   el.textContent = shown.text
   el.style.font = type.font
   el.style.left = `${rect.right}px`
@@ -195,6 +200,7 @@ function paint(): boolean {
   // the caret; sit just below it instead.
   const width = el.getBoundingClientRect().width
   sitBelowCover(el, { left: rect.right, top: rect.top, width: Math.max(1, width), height: rect.height }, shown.host)
+  })
   return true
 }
 
