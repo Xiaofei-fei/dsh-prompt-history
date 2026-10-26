@@ -287,6 +287,34 @@ export async function overlaySuite(page, check) {
     { elementFromPointCalls: probeCost })
   await seamHideSuggestion(page)
 
+  // 10) A cover with no numeric z-index (an approval card rendered inside the
+  //     composer card) has no layer to slide under. The product rule is simply
+  //     that the hint must not stay visible over it; whether it is hidden or
+  //     removed is an implementation detail. (The restore path is covered by the
+  //     popup check above, which uses a cover the page itself renders.)
+  await clearComposer(page)
+  await seamShowSuggestion(page)
+  await sleep(400)
+  await page.evaluate(() => {
+    const card = document.querySelector('[data-composer-card]')
+    const cover = document.createElement('div')
+    cover.setAttribute('data-e2e-inflow-cover', '1')
+    cover.style.cssText = 'position:absolute;inset:0;background:transparent'
+    ;(card ?? document.body).appendChild(cover)
+  })
+  await sleep(1700) // the 1 s fallback tick schedules the frame that re-probes
+  const overInflowCover = await page.evaluate(() => {
+    const node = document.querySelector('.dsh-ph-suggest')
+    if (node === null) return 'removed'
+    return getComputedStyle(node).visibility === 'hidden' ? 'hidden' : 'visible'
+  })
+  await page.evaluate(() => { document.querySelector('[data-e2e-inflow-cover="1"]')?.remove() })
+  await sleep(400)
+  check('an in-flow cover without a z-index never leaves the hint visible',
+    overInflowCover === 'hidden' || overInflowCover === 'removed',
+    { overInflowCover })
+  await seamHideSuggestion(page)
+
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })

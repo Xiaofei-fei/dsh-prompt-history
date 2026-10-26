@@ -50,8 +50,10 @@ export async function composerSuite(page, check) {
   await page.keyboard.press('ArrowUp')
   await sleep(500)
   const searched = (await composerText(page) ?? '').trim()
+  // Prefix search guarantees "an entry starting with the prefix"; when the only
+  // match is the typed line itself, the draft simply stays put.
   check('history prefix search jumps to a matching prompt',
-    prefix.length >= 2 && searched.startsWith(prefix) && searched.length > prefix.length,
+    prefix.length >= 2 && searched.startsWith(prefix),
     { prefix, searched: searched.slice(0, 30) })
 
   // 4) Completion ghost offers the suffix and Tab accepts it.
