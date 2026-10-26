@@ -164,6 +164,33 @@ export async function overlaySuite(page, check) {
     if (placeholder === undefined) return null
     return getComputedStyle(placeholder).visibility !== 'hidden'
   })
+  // 6) Issue #14: the scroll path must coalesce into one measurement per frame.
+  //    A trackpad gesture fires dozens of events; measuring per event forced a
+  //    synchronous layout each time (~20 fps while scrolling a long conversation).
+  await clearComposer(page)
+  await seamShowSuggestion(page)
+  await sleep(300)
+  const burst = await page.evaluate(async () => {
+    const proto = Element.prototype
+    const original = proto.getBoundingClientRect
+    let calls = 0
+    proto.getBoundingClientRect = function patched(...args) {
+      calls += 1
+      return original.apply(this, args)
+    }
+    for (let i = 0; i < 40; i += 1) window.dispatchEvent(new Event('scroll'))
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    proto.getBoundingClientRect = original
+    return calls
+  })
+  const afterBurst = await overlayGeometry(page)
+  check('scroll bursts coalesce into a frame-sized measurement',
+    burst <= 20
+      && afterBurst.present === true
+      && Math.abs(afterBurst.left - afterBurst.contentLeft) <= TOLERANCE,
+    { rectCalls: burst, afterBurst })
+  await seamHideSuggestion(page)
+
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })

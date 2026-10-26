@@ -9,6 +9,8 @@
  * measured the ghost simply stays hidden — a misplaced hint is worse than none.
  */
 import { COMPOSER_CARD } from './editor.ts'
+import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
+import { scheduleFrame } from './frame.ts'
 import { sitBelowCover } from './occlusion.ts'
 
 const GHOST_CLASS = 'dsh-ph-ghost'
@@ -25,7 +27,7 @@ function ensureStyle(): void {
     'color:var(--dsw-alias-label-primary);}',
   ].join('')
   document.head.appendChild(tag)
-  window.addEventListener('resize', onViewportChange, { passive: true })
+  window.addEventListener('resize', () => { invalidateTypeStyle(); onViewportChange() }, { passive: true })
   window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
 }
 
@@ -37,6 +39,7 @@ export function ghostVisible(): boolean {
 /** Remove the ghost (idempotent). */
 export function hideGhost(): void {
   stopTick()
+  stopResizeWatch()
   current = null
   if (node !== null) {
     node.remove()
@@ -102,6 +105,8 @@ function textareaCaretRect(host: HTMLTextAreaElement): DOMRect | null {
 let current: { readonly text: string; readonly host: HTMLTextAreaElement | HTMLElement } | null = null
 /** Self-healing tick: the composer moves whenever a sidebar opens or closes. */
 let tickTimer: number | null = null
+/** Watches the host's size: a sidebar toggle resizes the column, not the window. */
+let resizeObserver: ResizeObserver | null = null
 
 /** Start following the caret while the ghost is on screen. */
 function startTick(): void {
@@ -115,8 +120,9 @@ function startTick(): void {
       hideGhost()
       return
     }
-    paint()
-  }, 250)
+    // Geometry is measured in the coalesced frame, not here.
+    scheduleFrame(paint)
+  }, 1000)
 }
 
 /** Stop following the caret. */
@@ -127,9 +133,24 @@ function stopTick(): void {
   }
 }
 
-/** Repaint on viewport changes without waiting for the next tick. */
+/** Observe the host's box so a column resize repaints in the same frame. */
+function startResizeWatch(host: HTMLElement): void {
+  stopResizeWatch()
+  if (typeof ResizeObserver !== 'function') return
+  resizeObserver = new ResizeObserver(() => { scheduleFrame(paint) })
+  resizeObserver.observe(host)
+}
+
+/** Stop watching the host. */
+function stopResizeWatch(): void {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+}
+
+/** Queue a repaint for the coming frame (scroll fires far more often than that). */
 function onViewportChange(): void {
-  if (node !== null && current !== null) paint()
+  if (node === null || current === null) return
+  scheduleFrame(paint)
 }
 
 /**
@@ -147,9 +168,9 @@ function paint(): boolean {
   const rect = caretRect(shown.host)
   if (rect === null) return false
   const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
-  const font = card !== null ? window.getComputedStyle(card).font : ''
+  const font = composerTypeStyle(card).font
   el.textContent = shown.text
-  el.style.font = font === '' ? 'inherit' : font
+  el.style.font = font
   el.style.left = `${rect.right}px`
   el.style.top = `${rect.top}px`
   el.style.height = `${rect.height}px`
@@ -191,6 +212,7 @@ export function showGhost(text: string, host: HTMLTextAreaElement | HTMLElement)
     document.body.appendChild(node)
   }
   current = { text, host }
+  startResizeWatch(host)
   if (!paint()) {
     hideGhost()
     return false

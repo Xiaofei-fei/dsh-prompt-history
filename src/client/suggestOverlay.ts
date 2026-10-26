@@ -9,6 +9,8 @@
  * @module dsh-prompt-history/client/suggestOverlay
  */
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
+import { scheduleFrame } from './frame.ts'
+import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
 import { sitBelowCover } from './occlusion.ts'
 
 const CLASS = 'dsh-ph-suggest'
@@ -23,6 +25,8 @@ let hiddenPlaceholders: Array<{ el: HTMLElement; prev: string }> = []
 let tickTimer: number | null = null
 /** What is on screen right now, so a layout change can repaint it. */
 let current: Painted | null = null
+/** Watches the host's size: a sidebar toggle resizes the column, not the window. */
+let resizeObserver: ResizeObserver | null = null
 
 /** One painted suggestion: the content plus the host it must stay glued to. */
 interface Painted {
@@ -37,15 +41,28 @@ interface Painted {
 /**
  * Keep the overlay correct while it is on screen.
  *
- * Two things move under it without any event of their own: the composer is
- * mounted in stages (its card and placeholder can be replaced right after the
- * first prediction), and the column it lives in resizes or shifts whenever a
- * sidebar opens or closes. A light poll re-hides the placeholder and re-measures
- * the box, which also catches pure moves that a resize observer never reports.
+ * The composer is mounted in stages (its card and placeholder can be replaced
+ * right after the first prediction), so a light poll re-hides the placeholder
+ * and drops a dead host. Geometry is NOT measured here: that is forced layout,
+ * and it belongs to the coalesced frame (see frame.ts).
  */
 function startTick(): void {
   if (tickTimer !== null) return
-  tickTimer = window.setInterval(tick, 250)
+  tickTimer = window.setInterval(tick, 1000)
+}
+
+/** Observe the host's box so a column resize repaints in the same frame. */
+function startResizeWatch(host: HTMLElement): void {
+  stopResizeWatch()
+  if (typeof ResizeObserver !== 'function') return
+  resizeObserver = new ResizeObserver(() => { scheduleFrame(paint) })
+  resizeObserver.observe(host)
+}
+
+/** Stop watching the host. */
+function stopResizeWatch(): void {
+  resizeObserver?.disconnect()
+  resizeObserver = null
 }
 
 /** Stop the self-healing poll. */
@@ -56,7 +73,14 @@ function stopTick(): void {
   }
 }
 
-/** One self-healing pass: drop a dead host, re-hide, re-measure, repaint. */
+/**
+ * One self-healing pass.
+ *
+ * Kept only as the fallback for layout changes no event reports (a column that
+ * moves without resizing). It is deliberately slow: each paint is a forced
+ * layout, and the scroll path — the actual cost in issue #14 — is now coalesced
+ * into frames instead.
+ */
 function tick(): void {
   if (node === null || current === null) {
     stopTick()
@@ -66,12 +90,20 @@ function tick(): void {
     hideSuggestion()
     return
   }
-  paint()
+  if (node.style.visibility !== 'hidden' && current.hidePlaceholder) hidePlaceholders()
+  scheduleFrame(paint)
 }
 
-/** Repaint on viewport changes, immediately rather than on the next tick. */
+/**
+ * Queue a repaint for the coming frame.
+ *
+ * Scroll and resize fire far more often than frames; measuring inside the event
+ * is what forced a synchronous layout per event. The queue collapses a burst
+ * into one measurement.
+ */
 function onViewportChange(): void {
-  if (node !== null && current !== null) paint()
+  if (node === null || current === null) return
+  scheduleFrame(paint)
 }
 
 /** Hide the composer placeholder (inline + via the card class for re-renders). */
@@ -119,7 +151,7 @@ function ensureStyle(): void {
  */
 export function installSuggestStyle(): void {
   ensureStyle()
-  window.addEventListener('resize', onViewportChange, { passive: true })
+  window.addEventListener('resize', () => { invalidateTypeStyle(); onViewportChange() }, { passive: true })
   window.addEventListener('scroll', onViewportChange, { passive: true, capture: true })
 }
 
@@ -131,6 +163,7 @@ export function suggestionVisible(): boolean {
 /** Remove the suggestion overlay (idempotent). */
 export function hideSuggestion(): void {
   stopTick()
+  stopResizeWatch()
   current = null
   restorePlaceholders()
   if (node !== null) {
@@ -184,7 +217,7 @@ function paint(): boolean {
   // below it so the panel covers the ghost instead of the ghost bleeding around
   // the panel. Restored to the stylesheet default as soon as it closes.
   sitBelowCover(el, box, painted.host)
-  const style = window.getComputedStyle(card ?? painted.host)
+  const style = composerTypeStyle(card)
   // A cover with no layer of its own hides the hint (see occlusion.ts). The
   // composer's placeholder then has to come back — an empty field with neither
   // the hint nor the placeholder reads as a broken composer.
@@ -211,14 +244,14 @@ function paint(): boolean {
   }
   el.textContent = ''
   el.append(textEl, hintEl)
-  el.style.font = style.font === '' ? 'inherit' : style.font
+  el.style.font = style.font
   el.style.letterSpacing = style.letterSpacing
   el.style.left = `${box.left}px`
   el.style.top = `${box.top}px`
   el.style.width = `${box.width}px`
   el.style.height = `${box.height}px`
   el.style.lineHeight = `${box.line}px`
-  hintEl.style.fontSize = `${Math.max(10, (Number.parseFloat(style.fontSize) || 14) - 2)}px`
+  hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
   return true
 }
 
@@ -302,6 +335,7 @@ export function showSuggestion(
     document.body.appendChild(node)
   }
   current = { text, hint, host, hidePlaceholder }
+  startResizeWatch(host)
   if (!paint()) {
     hideSuggestion()
     return false

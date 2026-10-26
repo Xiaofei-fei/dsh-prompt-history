@@ -258,7 +258,12 @@ export function useClipboard(input: ClipboardInput): void {
       if (e.target instanceof Element && e.target.closest('.dsh-ph-toolbar') !== null) return
       hideSelectionToolbar()
     }
-    const onScroll = (): void => { hideSelectionToolbar() }
+    // Cheap early-out: scrolling the conversation with no toolbar on screen must
+    // not touch the DOM at all.
+    const onScroll = (): void => {
+      if (document.querySelector('.dsh-ph-toolbar') === null) return
+      hideSelectionToolbar()
+    }
 
     document.addEventListener('selectionchange', onSelectionChange)
     document.addEventListener('mousedown', onMouseDown, true)

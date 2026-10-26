@@ -15,6 +15,7 @@ import {
 import { completionEligible, matchCompletion } from './completion.ts'
 import { hideGhost, showGhost } from './ghost.ts'
 import { getPrefs } from './prefs.ts'
+import { scheduleFrame } from './frame.ts'
 import type { LiveComposer } from './useSuggestion.ts'
 
 /** What the composer hands the hook. */
@@ -82,15 +83,20 @@ export function useCompletion(input: CompletionInput): CompletionControls {
 
   // Keep the ghost glued to the draft, caret and viewport: caret moves (arrow
   // keys, clicks, selection), layout shifts and scrolls all move its anchor.
+  //
+  // Events only queue the work: sync() walks the DOM (host, card, menu, offsets,
+  // matcher), and scroll fires dozens of times per frame during a trackpad
+  // gesture — running it per event was the 20 fps scroll report (issue #14).
   useEffect(() => {
-    sync()
-    document.addEventListener('selectionchange', sync)
-    window.addEventListener('resize', sync)
-    window.addEventListener('scroll', sync, true)
+    const queued = (): void => { scheduleFrame(sync) }
+    queued()
+    document.addEventListener('selectionchange', queued)
+    window.addEventListener('resize', queued)
+    window.addEventListener('scroll', queued, true)
     return () => {
-      document.removeEventListener('selectionchange', sync)
-      window.removeEventListener('resize', sync)
-      window.removeEventListener('scroll', sync, true)
+      document.removeEventListener('selectionchange', queued)
+      window.removeEventListener('resize', queued)
+      window.removeEventListener('scroll', queued, true)
       hideGhost()
     }
   }, [sync, input.draft, getPrefs().promptCompletion])
