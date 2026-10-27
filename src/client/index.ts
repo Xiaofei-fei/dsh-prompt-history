@@ -23,6 +23,7 @@ import { hideSuggestion, installSuggestStyle, showPending, showSuggestion } from
 import { hideGhost, showGhost } from './ghost.ts'
 import { bindSideChat } from './sideChat.tsx'
 import { bindRootContext } from './sessionCtx.ts'
+import { bindQuoteContext, bindQuoteNotes } from './quoteMarks.tsx'
 
 /** Required services: the slot registry, the locale service. */
 export const inject = ['slots', 'locale']
@@ -115,6 +116,11 @@ export function apply(ctx: ClientContext): void {
   // with loadOlder() from component code (no ctx there); the sessions service
   // is resolved lazily per call — it appears only after the host connection.
   bindRootContext(ctx)
+  // Quote marks need the same root context: the submit hook reaches the
+  // per-session composer shell through the conversation service (with a DOM
+  // fallback), and the transcript pill registers on uiConversation.
+  bindQuoteContext(ctx)
+  bindQuoteNotes(ctx)
   // Style first: the suggestion overlay hides the composer's own placeholder.
   installSuggestStyle()
 

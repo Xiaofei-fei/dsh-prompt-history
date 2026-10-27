@@ -69,6 +69,13 @@ const zh = {
   'toc.title': '会话目录',
   'toc.aria': '会话目录（可拖动）',
   'toc.resize': '拖动右下角调整面板大小',
+  'quote.selected': '所选文本',
+  'quote.count': '条注',
+  'quote.notes': '条注释',
+  'quote.view': '查看引用',
+  'quote.edit': '编辑',
+  'quote.delete': '删除',
+  'quote.clear': '清除全部引用',
   'search.noMatch': '无匹配',
 } as const
 
@@ -134,6 +141,13 @@ const en: Record<keyof typeof zh, string> = {
   'toc.title': 'Conversation TOC',
   'toc.aria': 'Conversation TOC (draggable)',
   'toc.resize': 'Drag the corner to resize',
+  'quote.selected': 'Selected text',
+  'quote.count': 'notes',
+  'quote.notes': 'notes',
+  'quote.view': 'View quotes',
+  'quote.edit': 'Edit',
+  'quote.delete': 'Delete',
+  'quote.clear': 'Clear all quotes',
   'search.noMatch': 'no match',
 }
 

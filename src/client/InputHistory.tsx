@@ -48,6 +48,7 @@ import {
   focusEditor, isEditorTarget, setEditorCaret,
 } from './editor.ts'
 import { useClipboard } from './useClipboard.ts'
+import { QuoteOverlay } from './quoteMarks.tsx'
 import { useHistory } from './useHistory.ts'
 import { useBrowse } from './useBrowse.ts'
 import { useComposerKeys } from './useComposerKeys.ts'
@@ -164,7 +165,7 @@ export function InputHistory(props: InputHistoryProps) {
   // History-completion ghost (suffix of a past prompt after the caret).
   const completion = useCompletion({ liveRef, historyRef, draft })
   // Clipboard: right-click paste, copy modes, selection toolbar, quote.
-  useClipboard({ liveRef })
+  useClipboard({ liveRef, sessionId })
   // Browsing (↑/↓ with prefix search) and Ctrl+R reverse search.
   const browsing = useBrowse({ liveRef, historyRef, browseRef, searchRef })
   // History: seed/reset/fold the prompt list from the session's own messages.
@@ -205,7 +206,14 @@ export function InputHistory(props: InputHistoryProps) {
   // reverse search → hint accept → arrows), installed once.
   useComposerKeys({ liveRef, historyRef, suggestion, completion, browsing })
 
-  return prefs.tocVisible
-    ? <ChatToc texts={tocTexts} onWiden={requestWiden} />
-    : null
+  // The TOC (when enabled) plus the Codex-style quote card: notes queued from
+  // the selection toolbar, rendered above the composer and prepended to the
+  // message on submit. Both are optional chrome — InputHistory itself returns
+  // no visible box, so the fragment keeps its previous shape.
+  return (
+    <>
+      {prefs.tocVisible ? <ChatToc texts={tocTexts} onWiden={requestWiden} /> : null}
+      <QuoteOverlay sessionId={sessionId} />
+    </>
+  )
 }
