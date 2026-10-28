@@ -213,7 +213,7 @@ export function InputHistory(props: InputHistoryProps) {
   return (
     <>
       {prefs.tocVisible ? <ChatToc texts={tocTexts} onWiden={requestWiden} /> : null}
-      <QuoteOverlay sessionId={sessionId} />
+      <QuoteOverlay sessionId={sessionId} draft={draft} phase={phase} inputActions={inputActions} />
     </>
   )
 }

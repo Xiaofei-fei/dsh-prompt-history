@@ -9,6 +9,7 @@
 import { launch, openApp, startServer } from './harness.mjs'
 import { composerSuite } from './composer.mjs'
 import { overlaySuite } from './overlay.mjs'
+import { quoteSuite } from './quote.mjs'
 import { sideChatSuite } from './sidechat.mjs'
 
 /** Collected results. */
@@ -44,6 +45,7 @@ try {
   const { page, errors } = await openApp(browser)
   await suite('overlay', () => overlaySuite(page, check))
   await suite('composer', () => composerSuite(page, check))
+  await suite('quote', () => quoteSuite(page, check))
   await suite('side chat', () => sideChatSuite(page, check, browser))
   check('no console errors during the run', errors.length === 0, { errors: errors.slice(0, 3) })
 } catch (error) {

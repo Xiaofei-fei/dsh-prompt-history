@@ -9,19 +9,18 @@
  * - A card above the composer lists the entries (number, text, edit, delete),
  *   collapsed to a "N 条注" pill until it is hovered, clicked or focused, and a
  *   matching badge is painted over the transcript text the quote came from.
- * - The draft stays empty. The quotes are prepended to the message by a hook on
- *   the composer shell's submit(), which Enter, the send button and the
- *   keyboard shortcut all go through.
+ * - The draft stays empty. The quotes are prepended to the message by a
+ *   capture listener on the send gesture itself (Enter inside the composer, or
+ *   a click on the send button), through the composer's public input actions.
  * - In the transcript, the leading "> ..." blocks of a sent user message are
  *   rendered as a "N 条注释" pill (a user-text rule plus a node renderer)
  *   instead of raw blockquote text.
  *
- * The submit hook never trusts the insertion API's return value: draft writes
- * go through captureInsertion()/insertText(), which reports success for spans
- * it merely mapped, so the hook re-reads the shell snapshot and only sends once
- * the quotes are actually in the draft - falling back to setDraft(), and
- * deferring one microtask when the editor has not published the write yet. A
- * quote that cannot be verified keeps its entry instead of vanishing silently.
+ * The injection uses captureInsertion()/insertText() while the composer is
+ * still idle, so the editor commits the write synchronously and submit() reads
+ * the refreshed projection - the same insertion point the composer itself
+ * uses. A refused write (busy machine, draft moved on) keeps the notes
+ * instead of letting them vanish silently.
  *
  * @module dsh-prompt-history/client/quoteMarks
  */
@@ -30,6 +29,7 @@ import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { COMPOSER_CARD } from './editor.ts'
+import { scheduleFrame } from './frame.ts'
 import { T } from './i18n.ts'
 
 /** Where in the transcript a quote came from (element + text offsets). */
@@ -158,165 +158,104 @@ export function quotePayload(entries: readonly QuoteEntry[]): string {
   return payload
 }
 
-/** The composer shell's action face, as far as quotes need it. */
-interface QuoteShellActions {
-  captureInsertion?: () => { readonly draftRev?: number } | undefined
-  insertText?: (text: string, span: unknown) => boolean
+/** The composer's action face, as far as quote injection needs it. */
+export interface QuoteInsertActions {
+  /** Snapshot of the caret span plus the draft revision it belongs to. */
+  captureInsertion(): { readonly draftRev: number }
+  /**
+   * Insert plain text at a captured span.
+   *
+   * @param text - text to insert.
+   * @param span - the captured revision with the span to replace.
+   * @returns false when the draft moved on or submission locked the editor.
+   */
+  insertText(text: string, span: { readonly start: number; readonly end: number; readonly draftRev: number }): boolean
 }
 
-/** The composer shell the UI submits through (ConversationInputShell). */
-interface QuoteShell {
-  readonly snapshot?: { readonly draft?: string } | undefined
-  readonly actions?: QuoteShellActions | undefined
-  setDraft?: (text: string) => void
-  publish?: () => void
-  submit: (mode?: string, source?: string) => unknown
+/** The leading blockquote text a send should carry, or null when none is queued. */
+function pendingPayload(sessionId: string | undefined): string | null {
+  const entries = quoteEntries(sessionId)
+  if (entries.length === 0) return null
+  const payload = quotePayload(entries)
+  return payload === '' ? null : payload
 }
 
-/** Duck-type check for a composer shell. */
-function isShell(value: unknown): value is QuoteShell {
-  if (value === null || typeof value !== 'object') return false
-  return typeof (value as { submit?: unknown }).submit === 'function'
-}
-
-/** The plugin context, bound from apply() so the conversation service is reachable. */
-let pluginContext: ClientContext | undefined
-
-/** Remember the plugin context (called once from apply). */
-export function bindQuoteContext(ctx: ClientContext): void {
-  pluginContext = ctx
-}
-
-/** The React fiber React parks on a DOM node (internal key, prefixed). */
-interface FiberLike {
-  readonly memoizedProps?: unknown
-  readonly return?: FiberLike | null
-}
-
-/** Read the fiber of a DOM node. */
-function fiberOf(node: Element): FiberLike | null {
-  const record = node as unknown as Record<string, FiberLike | undefined>
-  for (const key of Object.keys(record)) {
-    if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) return record[key] ?? null
-  }
-  return null
-}
-
-/**
- * Last-resort shell lookup: the composer card's own props carry the shell
- * ('keyboard') the InputBar submits through. Only used when the service lookup
- * fails, because a missing hook silently drops every quote.
- */
-function shellFromDom(): QuoteShell | null {
-  const card = document.querySelector(COMPOSER_CARD)
-  if (card === null) return null
-  let fiber = fiberOf(card)
-  for (let guard = 0; fiber !== null && guard < 300; guard += 1) {
-    const props = fiber.memoizedProps
-    if (props !== null && typeof props === 'object') {
-      const candidate = (props as { keyboard?: unknown }).keyboard
-      if (isShell(candidate) && candidate.actions !== undefined) return candidate
+/** The buttons a composer sends with (send, or stop while a turn is running). */
+function sendControls(card: Element): readonly Element[] {
+  const controls: Element[] = []
+  // The send control is the only button the host marks with its module class.
+  // When that marker is missing (a renamed stylesheet) the click path stays
+  // inert on purpose: injecting on the wrong button would fill the draft with
+  // a blockquote that is never sent, while Enter keeps working regardless.
+  for (const button of card.querySelectorAll('button')) {
+    for (const token of button.classList) {
+      if (token.endsWith('_primary')) {
+        controls.push(button)
+        break
+      }
     }
-    fiber = fiber.return ?? null
   }
-  return null
-}
-
-/** The composer shell of one session. */
-function shellFor(sessionId: string | undefined): QuoteShell | null {
-  const dom = shellFromDom()
-  if (dom !== null) return dom
-  const ctx = pluginContext
-  if (ctx === undefined) return null
-  let conversation: unknown
-  try {
-    conversation = (ctx as unknown as { get: (name: string) => unknown }).get('conversation')
-  } catch {
-    return null
-  }
-  const input = (conversation as { input?: { shell?: (id: string) => unknown } } | undefined)?.input
-  if (input === undefined || typeof input.shell !== 'function') return null
-  try {
-    const shell = input.shell(storeKey(sessionId))
-    return isShell(shell) ? shell : null
-  } catch {
-    return null
-  }
-}
-
-/** Shells whose submit() is already wrapped. */
-const hookedShells = new WeakSet<QuoteShell>()
-
-/** Text the shell will actually send (submit reads its snapshot). */
-function snapshotText(shell: QuoteShell): string {
-  try {
-    const draft = shell.snapshot?.draft
-    return typeof draft === 'string' ? draft : ''
-  } catch {
-    return ''
-  }
-}
-
-/** Ask the shell to re-compose its published snapshot (best effort). */
-function flush(shell: QuoteShell): void {
-  try {
-    shell.publish?.()
-  } catch {
-    // publish() is private to the shell; the editor catches up on its own.
-  }
+  return controls
 }
 
 /**
- * Wrap the shell's submit() once so queued quotes land in the draft before the
- * message is built.
+ * Whether this keydown is the Enter that submits (mirrors the composer keymap).
  *
- * insertText() reports success for spans it only mapped, so the write is
- * verified against the live snapshot; an unverified write falls back to
- * setDraft() and then one microtask, after which the draft is checked again.
- * Entries are cleared only once the quotes are verified in the draft, so a
- * failed injection keeps the card instead of dropping the user's text.
+ * Accelerated (Ctrl/Cmd+Enter) is left alone: when a turn is queued the host
+ * turns it into a steer instead of a send, and steering must not touch the
+ * draft. Shift+Enter, Alt+Enter and IME composition never submit either.
  */
-export function ensureSendHook(sessionId: string | undefined): void {
-  const shell = shellFor(sessionId)
-  if (shell === null || hookedShells.has(shell)) return
-  const original = shell.submit
-  hookedShells.add(shell)
-  shell.submit = function submitWithQuotes(this: QuoteShell, mode?: string, source?: string): unknown {
-    const entries = quoteEntries(sessionId)
-    if (entries.length === 0) return original.call(this, mode, source)
-    const payload = quotePayload(entries)
-    if (payload === '') return original.call(this, mode, source)
-    const target = payload + snapshotText(this)
-    const hasPayload = (): boolean => snapshotText(this).indexOf(payload) === 0
-    const writeDraft = (): void => {
-      try {
-        this.setDraft?.(target)
-      } catch {
-        // Leave the entries in place; the card still shows them.
-      }
-      flush(this)
-    }
-    try {
-      const actions = this.actions
-      const insertion = actions?.captureInsertion?.()
-      if (actions?.insertText !== undefined && insertion !== undefined) {
-        actions.insertText(payload, { start: 0, end: 0, draftRev: insertion.draftRev })
-      }
-    } catch {
-      // Fall through to the verified draft write below.
-    }
-    if (!hasPayload()) writeDraft()
-    if (hasPayload()) {
+function isSubmitEnter(event: KeyboardEvent): boolean {
+  if (event.key !== 'Enter' || event.repeat) return false
+  if (event.shiftKey || event.altKey) return false
+  if (event.ctrlKey || event.metaKey) return false
+  if (event.isComposing || event.keyCode === 229) return false
+  const target = event.target instanceof Element ? event.target : null
+  return target !== null && target.closest('[data-composer-input]') !== null
+}
+
+/** Whether this click starts a send: the primary control with a non-empty draft. */
+function isSubmitClick(event: MouseEvent, draft: string): boolean {
+  const target = event.target instanceof Element ? event.target : null
+  if (target === null || draft.trim() === '') return false
+  const card = target.closest(COMPOSER_CARD)
+  const button = target.closest('button')
+  if (card === null || button === null || button.disabled) return false
+  return sendControls(card).includes(button)
+}
+
+/**
+ * Merge the queued quotes into the draft while a send is being started.
+ *
+ * The notes live outside the draft, so they are merged at the only supported
+ * moment: the send gesture itself. The composer keymap submits inside the
+ * editor's own Enter handler and the send button submits in the bubble phase,
+ * so a capture listener on document runs first, while the composer is still
+ * idle - an insertText() there commits synchronously and submit() reads the
+ * refreshed projection. That is the composer's own insertion point, not a
+ * monkey patch: nothing is prevented, no shell method is replaced and no
+ * private member is touched.
+ *
+ * @param sessionId - session whose notes are being sent.
+ * @param actions - the composer's public input actions.
+ * @param phase - composer machine phase; only 'plain' accepts a draft write.
+ * @returns true when the quotes were merged into the draft.
+ */
+function injectQuotes(sessionId: string | undefined, actions: QuoteInsertActions, phase: string): boolean {
+  if (phase !== 'plain') return false
+  const payload = pendingPayload(sessionId)
+  if (payload === null) return false
+  // insertText() refuses a span from a stale revision: retry once for a
+  // keystroke that landed between the gesture and the write.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const span = actions.captureInsertion()
+    if (actions.insertText(payload, { start: 0, end: 0, draftRev: span.draftRev })) {
       setEntries(sessionId, [])
-      return original.call(this, mode, source)
+      return true
     }
-    void Promise.resolve().then(() => {
-      if (!hasPayload()) writeDraft()
-      if (hasPayload()) setEntries(sessionId, [])
-      original.call(this, mode, source)
-    })
-    return undefined
   }
+  // The write was refused, so nothing is sent with quotes: keep the card.
+  return false
 }
 
 /** Text offset of a DOM point inside its closest element (for anchors). */
@@ -422,15 +361,28 @@ export function ensureQuoteStyle(): void {
 /** Delay before the card collapses after the pointer leaves it. */
 const CARD_HIDE_DELAY = 160
 
+/** Props of the composer-side quote chrome. */
+export interface QuoteOverlayProps {
+  /** Session whose quote store is shown. */
+  readonly sessionId: string | undefined
+  /** Current draft text (the primary control only sends with a non-empty draft). */
+  readonly draft: string
+  /** Composer machine phase; quotes are only merged in while it is 'plain'. */
+  readonly phase: string
+  /** The composer's public action face, provided by the slot. */
+  readonly inputActions: QuoteInsertActions
+}
+
 /**
  * The quote card above the composer plus the numbered badges over the quoted
  * transcript text. Renders nothing visible until the first quote exists: the
  * card stays collapsed to a "N 条注" pill until it is hovered, focused or
- * clicked, and the badges track their text through a per-frame range rebuild.
+ * clicked, and the badges follow their text through the frame scheduler. The
+ * queued notes are merged into the draft when the user starts a send.
  *
- * @param props - standard kit: the current session id.
+ * @param props - session, live composer facts and the composer's actions.
  */
-export function QuoteOverlay({ sessionId }: { readonly sessionId: string | undefined }): ReactElement {
+export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOverlayProps): ReactElement {
   const [mount, setMount] = useState<HTMLDivElement | null>(null)
   const [editingId, setEditingId] = useState(0)
   const [editingText, setEditingText] = useState('')
@@ -476,16 +428,55 @@ export function QuoteOverlay({ sessionId }: { readonly sessionId: string | undef
     return () => { element.remove() }
   }, [])
 
-  useEffect(() => { ensureSendHook(sessionId) }, [sessionId])
+  // Event-time composer facts for the send listeners below.
+  const sendRef = useRef({ draft, phase, actions: inputActions })
+  sendRef.current = { draft, phase, actions: inputActions }
+
+  // Merge queued quotes into the message a send is about to carry. The two
+  // listeners are installed once per session and read the live composer facts
+  // from sendRef, so they never need re-registration.
+  useEffect(() => {
+    if (entries.length === 0) return
+    // A side chat (or any second composer) renders its own overlay; only the
+    // composer card that carries this overlay's marker span receives its notes.
+    const owns = (event: Event): boolean => {
+      const slot = slotRef.current
+      const target = event.target instanceof Element ? event.target : null
+      const card = target === null ? null : target.closest(COMPOSER_CARD)
+      return slot !== null && card !== null && slot.closest(COMPOSER_CARD) === card
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!isSubmitEnter(event) || !owns(event)) return
+      const live = sendRef.current
+      injectQuotes(sessionId, live.actions, live.phase)
+    }
+    const onClick = (event: MouseEvent): void => {
+      const live = sendRef.current
+      if (!isSubmitClick(event, live.draft) || !owns(event)) return
+      injectQuotes(sessionId, live.actions, live.phase)
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('click', onClick, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('click', onClick, true)
+    }
+  }, [entries.length, sessionId])
   useEffect(() => { if (entries.length === 0) setPinned(false) }, [entries.length])
 
   // Keep the card under the composer and the badges on their quoted text.
+  //
+  // Positioning runs inside frame.ts's single scheduled frame instead of a
+  // self-perpetuating requestAnimationFrame loop: it is scheduled only by
+  // events that can actually move something (scroll, resize, layout growth,
+  // entry changes), so an idle conversation with quote notes costs nothing and
+  // scrolling never fan-outs into more than one measurement per frame.
   useEffect(() => {
     if (entries.length === 0) return
     ensureQuoteStyle()
-    let raf = 0
-    const tick = (): void => {
-      raf = requestAnimationFrame(tick)
+    let disposed = false
+    const position = (): void => {
+      if (disposed) return
       const host = hostRef.current
       const card = (slotRef.current === null ? null : slotRef.current.closest(COMPOSER_CARD)) ?? document.querySelector(COMPOSER_CARD)
       if (host === null || card === null) return
@@ -513,9 +504,30 @@ export function QuoteOverlay({ sessionId }: { readonly sessionId: string | undef
         }
       }
     }
-    raf = requestAnimationFrame(tick)
+    const schedule = (): void => {
+      if (!disposed) scheduleFrame(position)
+    }
+    // The badge layer is rendered from the entries, so the first scheduled frame
+    // usually runs before its badges are in the DOM; follow up one frame later.
+    schedule()
+    scheduleFrame(() => { scheduleFrame(position) })
+    const scrollOptions: AddEventListenerOptions = { capture: true, passive: true }
+    document.addEventListener('scroll', schedule, scrollOptions)
+    window.addEventListener('resize', schedule)
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(schedule)
+      const card = document.querySelector(COMPOSER_CARD)
+      if (card !== null) observer.observe(card)
+      const scroll = document.querySelector('[data-conversation-scroll]')
+      const content = scroll === null ? null : scroll.firstElementChild
+      if (content !== null) observer.observe(content)
+    }
     return () => {
-      cancelAnimationFrame(raf)
+      disposed = true
+      document.removeEventListener('scroll', schedule, scrollOptions)
+      window.removeEventListener('resize', schedule)
+      if (observer !== null) observer.disconnect()
       const host = hostRef.current
       if (host !== null) host.dataset.open = ''
     }
@@ -687,8 +699,8 @@ function matchQuotedRun(text: string): QuoteNotesCandidate | undefined {
 
 /**
  * One comment pill for a sent message: the leading run of Markdown blockquote
- * lines the send hook prepended. Matching only at offset 0 keeps a blockquote
- * the user typed by hand mid-message untouched.
+ * lines the quote notes put before the prompt. Matching only at offset 0 keeps
+ * a blockquote the user typed by hand mid-message untouched.
  */
 export const QUOTE_NOTES_RULE: QuoteNotesRule = {
   id: 'quote-notes',
@@ -760,14 +772,16 @@ export function QuoteNotesChip({ node }: QuoteNotesChipProps): ReactElement {
  * The uiConversation service, as far as the comment pill needs it. Hosts before
  * 0.2.1-rc.3 do not have it, so every member is optional and the caller guards.
  */
-interface QuoteUserTextHost {
-  readonly userText?: { register: (rule: QuoteNotesRule) => unknown } | undefined
+interface QuoteConversationHost {
+  readonly uiConversation?: { readonly userText?: { register: (rule: QuoteNotesRule) => unknown } | undefined } | undefined
 }
 
 /** Slot registry surface, loose because the node slot is not in every typings. */
-interface QuoteSlotHost {
-  inject: (name: string, callback: (...args: never[]) => unknown) => unknown
-  register: (options: Record<string, unknown>, component: unknown) => unknown
+interface QuoteSlotsHost {
+  readonly slots: {
+    inject: (name: string, callback: (...args: never[]) => unknown) => unknown
+    register: (options: Record<string, unknown>, component: unknown) => unknown
+  }
 }
 
 /** True once the transcript half is registered (it is a one-shot registration). */
@@ -783,17 +797,21 @@ export function bindQuoteNotes(ctx: ClientContext): void {
   if (notesBound) return
   notesBound = true
   ensureQuoteStyle()
-  ctx.inject(['uiConversation', 'slots'], (notesCtx) => {
-    const host = notesCtx as unknown as QuoteUserTextHost & { slots: QuoteSlotHost }
+  // Two independent injections: a host may expose the text rules without the
+  // node slot (or the other way round), and each half degrades on its own.
+  ctx.inject(['uiConversation'], (notesCtx) => {
     try {
-      host.userText?.register(QUOTE_NOTES_RULE)
+      const conversation = (notesCtx as unknown as QuoteConversationHost).uiConversation
+      conversation?.userText?.register(QUOTE_NOTES_RULE)
     } catch {
       // Older hosts: the pill is skipped, the transcript keeps plain text.
     }
+  })
+  ctx.inject(['slots'], (notesCtx) => {
     try {
-      const slots = host.slots
+      const slots = (notesCtx as unknown as QuoteSlotsHost).slots
       slots.inject('conversation.user.text.node', function* () {
-        yield slots.register({ name: 'conversation.user.text.node', key: 'quote-notes', priority: 100 }, QuoteNotesChip)
+        yield slots.register({ name: 'conversation.user.text.node', key: QUOTE_NOTES_RULE.id, priority: 100 }, QuoteNotesChip)
       })
     } catch {
       // Same fallback: no renderer, no pill, no breakage.

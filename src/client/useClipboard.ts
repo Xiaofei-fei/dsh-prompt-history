@@ -20,7 +20,7 @@ import {
 } from './editor.ts'
 import { getPrefs } from './prefs.ts'
 import { quoteBlock, sendToSideChat } from './bridge.ts'
-import { addQuoteEntry, ensureSendHook, selectionAnchor } from './quoteMarks.tsx'
+import { addQuoteEntry, selectionAnchor } from './quoteMarks.tsx'
 import type { LiveComposer } from './useSuggestion.ts'
 
 /** What the composer hands the hook. */
@@ -171,8 +171,8 @@ export function useClipboard(input: ClipboardInput): void {
     }
 
     // 引用: queue the FULL selected text as a numbered note above the composer
-    // (Codex-style). The draft is left untouched — the note is prepended to the
-    // message by the submit hook when the user sends, so the input stays exactly
+    // (Codex-style). The draft is left untouched — the note is merged into the
+    // message when the user sends, so the input stays exactly
     // what the user typed.
     const quoteSelection = (): void => {
       const live = liveRef.current
@@ -197,7 +197,6 @@ export function useClipboard(input: ClipboardInput): void {
       // scrolls instead of drifting away from it.
       const anchor = selectionAnchor()
       addQuoteEntry(sessionRef.current, text, anchor)
-      ensureSendHook(sessionRef.current)
       requestAnimationFrame(() => { focusEditor(host) })
       flashCopied(null, T('pill.quoted'))
     }

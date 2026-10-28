@@ -127,12 +127,32 @@ export function resolveChrome() {
  */
 export async function startServer() {
   if (process.env.DSH_E2E_URL !== undefined) return async () => {}
-  const child = spawn(DSH_BIN, ['--profile', PROFILE, '--no-open', '--port', String(PORT)], {
-    detached: false,
-    stdio: 'ignore',
-    env: process.env,
-  })
+  const args = ['--profile', PROFILE, '--no-open', '--port', String(PORT)]
+  // Windows cannot exec a .cmd shim directly: spawn() would be EINVAL. The
+  // launcher DSH ships is a .cmd, so go through the command processor.
+  const isBatch = process.platform === 'win32' && /\.(cmd|bat)$/i.test(DSH_BIN)
+  const child = isBatch
+    ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${DSH_BIN}" ${args.join(' ')}`], {
+        detached: false,
+        stdio: 'ignore',
+        env: process.env,
+        windowsVerbatimArguments: true,
+      })
+    : spawn(DSH_BIN, args, {
+        detached: false,
+        stdio: 'ignore',
+        env: process.env,
+      })
   const stop = async () => {
+    if (process.platform === 'win32' && child.exitCode === null && child.pid !== undefined) {
+      // SIGTERM is a no-op on Windows; /T also reaps the Electron grandchild
+      // the .cmd launcher started, which would otherwise keep the port.
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+      const deadline = Date.now() + 5_000
+      while (child.exitCode === null && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
     if (child.exitCode === null) child.kill('SIGTERM')
     await new Promise((resolve) => setTimeout(resolve, 400))
     if (child.exitCode === null) child.kill('SIGKILL')
@@ -353,6 +373,145 @@ export function hostIdentity(page) {
 /** Sleep helper. */
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Select the text of one conversation message.
+ *
+ * The plugin reads the selection on `selectionchange`, so the range has to be
+ * installed and the event dispatched exactly like a real drag-select.
+ * @param page - the app page.
+ * @param options - `fromEnd` picks the newest message, otherwise the first.
+ * @returns the selected string, or null when no message row exists.
+ */
+export async function selectUserRowText(page, options = {}) {
+  const { fromEnd = false } = options
+  const selected = await page.evaluate((pickLast) => {
+    const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
+    const ordered = pickLast ? [...rows].reverse() : rows
+    // A sent message that itself starts with a quote would nest the note; prefer
+    // a plain message when there is one.
+    const row = ordered.find((candidate) => !(candidate.textContent ?? '').trim().startsWith('> '))
+      ?? ordered[0]
+    if (row === undefined) return null
+    const slot = row.querySelector('[data-slot="conversation.user.text.node"]')
+    const host = slot ?? row
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT)
+    const text = walker.nextNode()
+    const range = document.createRange()
+    range.selectNodeContents(text ?? host)
+    const selection = document.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    return (selection?.toString() ?? '').trim()
+  }, fromEnd)
+  await sleep(700)
+  return selected
+}
+
+/**
+ * Click the toolbar's quote action for the current selection.
+ * @param page - the app page.
+ * @returns the toolbar labels and whether the quote button was found.
+ */
+export async function clickQuoteAction(page) {
+  const buttons = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('.dsh-ph-toolbar button')]
+    const labels = all.map((button) => (button.textContent ?? '').trim())
+    const quote = all.find((button) => /引用|Quote/.test((button.textContent ?? '')))
+    if (quote !== undefined) quote.click()
+    return { labels, clicked: quote !== undefined }
+  })
+  await sleep(1000)
+  return buttons
+}
+
+/**
+ * Quote the selected message text the way a user does: select, then press the
+ * toolbar's quote action.
+ * @param page - the app page.
+ * @param options - forwarded to {@link selectUserRowText}.
+ * @returns the selected text and the toolbar labels.
+ */
+export async function quoteFromUserRow(page, options = {}) {
+  const selected = await selectUserRowText(page, options)
+  if (selected === null) return { selected: null, labels: [], clicked: false }
+  const { labels, clicked } = await clickQuoteAction(page)
+  return { selected, labels, clicked }
+}
+
+/** Read the composer-adjacent quote UI state. */
+export function quoteState(page) {
+  return page.evaluate(() => {
+    const host = document.querySelector('.dsh-ph-quote-host')
+    const card = document.querySelector('.dsh-ph-quote-card')
+    const pill = document.querySelector('.dsh-ph-quote-count')
+    const draft = document.querySelector('[data-composer-input]')
+    return {
+      mount: document.querySelector('.dsh-ph-quote-mount') !== null,
+      hostOpen: host === null ? null : host.getAttribute('data-open'),
+      hostShow: host === null ? null : host.getAttribute('data-show'),
+      pill: pill === null ? null : (pill.textContent ?? '').trim(),
+      pillDisplay: pill === null ? null : getComputedStyle(pill).display,
+      cardDisplay: card === null ? null : getComputedStyle(card).display,
+      rows: [...document.querySelectorAll('.dsh-ph-quote-row')].map((row) => (row.textContent ?? '').trim()),
+      draft: draft === null ? null : (draft.innerText ?? draft.textContent ?? ''),
+    }
+  })
+}
+
+/** Drop every pending quote through the pill's clear button. */
+export async function clearQuotes(page) {
+  const clicked = await page.evaluate(() => {
+    const clear = document.querySelector('.dsh-ph-quote-x')
+    if (clear === null) return false
+    clear.click()
+    return true
+  })
+  await sleep(350)
+  return clicked
+}
+
+/**
+ * Type a prompt into the composer and submit it.
+ *
+ * A real pointer click is required: focusing the editor from script does not
+ * give the page the keyboard focus, so `keyboard.type` would land nowhere.
+ * @param page - the app page.
+ * @param text - the prompt to type.
+ */
+export async function sendFromComposer(page, text) {
+  await page.click('[data-composer-input]')
+  await page.keyboard.type(text)
+  await page.keyboard.press('Enter')
+}
+
+/** Count the user bubbles in the conversation. */
+export function userMessageCount(page) {
+  return page.evaluate(() => document.querySelectorAll('[data-chat-flow-kind="user"]').length)
+}
+
+/**
+ * Make sure the opened session has at least one message.
+ *
+ * A brand-new scratch profile starts with an empty session, and most composer
+ * checks need history (the recall checks need a newest prompt). Sending a
+ * prompt works without a model: the row lands locally and only the assistant
+ * turn afterwards reports a missing credential.
+ * @param page - the app page.
+ * @param text - the prompt to seed with.
+ * @returns the text that is now the newest message.
+ */
+export async function ensureSessionMessage(page, text = 'e2e seed prompt 00001') {
+  if (await userMessageCount(page) > 0) return null
+  await sendFromComposer(page, text)
+  for (let i = 0; i < 12; i += 1) {
+    await sleep(1000)
+    if (await userMessageCount(page) > 0) break
+  }
+  await sleep(500)
+  return text
 }
 
 /**
