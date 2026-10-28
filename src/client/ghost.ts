@@ -10,6 +10,7 @@
  */
 import { COMPOSER_CARD } from './editor.ts'
 import { composerTypeStyle, editorLineHeight, invalidateTypeStyle } from './typeStyle.ts'
+import { claimComposer, registerGhostHider } from './overlayExclusion.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
 import { sitBelowCover } from './occlusion.ts'
@@ -227,6 +228,9 @@ function caretRect(host: HTMLTextAreaElement | HTMLElement): DOMRect | null {
   return editableCaretRect(host)
 }
 
+/** A prediction must let go of the composer when the completion ghost appears. */
+registerGhostHider(hideGhost)
+
 /**
  * Render `text` as a dim ghost right after the caret inside the composer.
  * @param text - the suffix to ghost.
@@ -243,6 +247,7 @@ export function showGhost(text: string, host: HTMLTextAreaElement | HTMLElement)
     hideGhost()
     return false
   }
+  claimComposer('ghost')
   ensureStyle()
   if (node === null) {
     node = document.createElement('div')

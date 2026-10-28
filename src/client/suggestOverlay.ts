@@ -12,9 +12,12 @@ import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
 import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
+import { claimComposer, registerSuggestionHider } from './overlayExclusion.ts'
 import { sitBelowCover } from './occlusion.ts'
 
 const CLASS = 'dsh-ph-suggest'
+/** ③ Long predictions are clamped to this many lines with an ellipsis. */
+const MAX_TEXT_LINES = 2
 /** Toggled on the composer card while a prediction is on screen. */
 const CARD_CLASS = 'dsh-ph-suggesting'
 /** The composer's own placeholder ("描述你想要构建的内容…"). */
@@ -176,6 +179,9 @@ export function installSuggestStyle(): void {
 // on "nothing changed", so the change itself has to wake the paint.
 subscribeOcclusionDirty(() => { scheduleFrame(paint) })
 
+// The completion ghost must let go of the composer when a prediction appears.
+registerSuggestionHider(hideSuggestion)
+
 /** Is a suggestion currently on screen? */
 export function suggestionVisible(): boolean {
   return node !== null
@@ -268,29 +274,42 @@ function paint(): boolean {
   hintEl.className = 'dsh-ph-suggest-hint'
   // The prediction may itself mention Tab (the conversation talks about it);
   // never repeat the hint in that case. A pending line never carries one.
-  const showHint = painted.pending !== true && painted.hint !== '' && !/tab/i.test(painted.text)
-  // A block hint needs a second line of room inside the composer.
-  const block = box.height >= box.line * 2.1
-  if (!showHint) {
-    hintEl.textContent = ''
-  } else if (block) {
-    hintEl.classList.add('dsh-ph-suggest-hint--block')
-    hintEl.textContent = painted.hint
-  } else {
-    hintEl.textContent = ` ${painted.hint}`
-  }
+  const wantHint = painted.pending !== true && painted.hint !== '' && !/tab/i.test(painted.text)
+
+  // ③ Two lines is what Codex shows, and it is the most a composer can display
+  // without the prediction swallowing the draft. The clamp gives a real ellipsis
+  // instead of letting overflow:hidden cut mid-sentence.
+  textEl.style.display = '-webkit-box'
+  textEl.style.webkitLineClamp = String(MAX_TEXT_LINES)
+  textEl.style.webkitBoxOrient = 'vertical'
+  textEl.style.overflow = 'hidden'
+
   asSelfWrite(() => {
-  el.textContent = ''
-  el.append(textEl, hintEl)
-  el.style.font = style.font
-  el.style.letterSpacing = style.letterSpacing
-  el.style.left = `${box.left}px`
-  el.style.top = `${box.top}px`
-  el.style.width = `${box.width}px`
-  el.style.height = `${box.height}px`
-  el.style.lineHeight = `${box.line}px`
-  hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
+    el.textContent = ''
+    el.append(textEl, hintEl)
+    el.style.font = style.font
+    el.style.letterSpacing = style.letterSpacing
+    el.style.left = `${box.left}px`
+    el.style.top = `${box.top}px`
+    el.style.width = `${box.width}px`
+    el.style.lineHeight = `${box.line}px`
+    // ② The container follows its content: a clamped two-line prediction needs
+    // more room than an empty editor had, and clipping it was what made long
+    // predictions read as a smear. Height is finished below, once measured.
+    el.style.height = `${box.height}px`
+    hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
+    // The hint trails a one-line prediction. A wrapped one already fills the
+    // composer's room, so the hint is dropped rather than laid over the footer.
+    hintEl.textContent = wantHint ? ` ${painted.hint}` : ''
   })
+
+  const textHeight = textEl.getBoundingClientRect().height
+  const wrapped = textHeight > box.line * 1.5
+  // Nothing to trail once the text wraps: the hint would either overlap the second
+  // line or grow the overlay past the composer footer.
+  if (wrapped) asSelfWrite(() => { hintEl.textContent = '' })
+  const height = Math.max(box.height, textHeight)
+  if (Math.abs(height - box.height) > 0.5) asSelfWrite(() => { el.style.height = `${height}px` })
   paintedSignature = signature
   return true
 }
@@ -316,6 +335,7 @@ export function showPending(text: string, host: HTMLElement, options: ShowSugges
   if (editorText(host).trim() !== '') return false
   const box = editorBox(host)
   if (box === null) return false
+  claimComposer('suggestion')
   ensureStyle()
   const hidePlaceholder = options.hidePlaceholder !== false
   if (hidePlaceholder) hidePlaceholders()
@@ -370,6 +390,7 @@ export function showSuggestion(
     hideSuggestion()
     return false
   }
+  claimComposer('suggestion')
   ensureStyle()
   const hidePlaceholder = options.hidePlaceholder !== false
   if (hidePlaceholder) hidePlaceholders()

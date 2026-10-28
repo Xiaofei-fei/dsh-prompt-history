@@ -325,6 +325,74 @@ export async function overlaySuite(page, check) {
     idle)
   await seamHideSuggestion(page)
 
+  // 12) Issue #15 ①: only one composer overlay may be on screen. Both are fixed
+  //     layers at the same z-index anchored to the same point, so the two dim texts
+  //     used to weave together in the race where the draft goes empty before the
+  //     completion sync re-runs. An empty contenteditable has no caret rect (no text
+  //     node), so the race is driven on a controlled textarea, where both entry
+  //     points are reachable in the same state.
+  const exclusive = await page.evaluate(() => {
+    const seam = window.__dshPhTest
+    if (seam === undefined) return null
+    const area = document.createElement('textarea')
+    area.style.cssText = 'position:fixed;left:40px;top:120px;width:320px;height:72px;'
+    document.body.appendChild(area)
+    area.focus()
+    // ghost first, then a prediction on the same empty field
+    const ghostShown = seam.showGhost('后缀', area) === true
+    const ghostBefore = seam.ghostVisible()
+    const suggestionShown = seam.showSuggestion('互斥校验预测', '按 Tab 键接受', area, { hidePlaceholder: false }) === true
+    const afterSuggestion = { suggestion: seam.suggestionVisible(), ghost: seam.ghostVisible() }
+    // and the other direction: a ghost claims the field back from the prediction
+    const ghostAgain = seam.showGhost('后缀二', area) === true
+    const afterGhost = { suggestion: seam.suggestionVisible(), ghost: seam.ghostVisible() }
+    seam.hideSuggestion()
+    seam.hideGhost()
+    area.remove()
+    return { ghostShown, ghostBefore, suggestionShown, afterSuggestion, ghostAgain, afterGhost }
+  })
+  check('only one composer overlay is on screen at a time',
+    exclusive !== null
+      && exclusive.ghostShown && exclusive.ghostBefore
+      && exclusive.suggestionShown
+      && exclusive.afterSuggestion.suggestion && !exclusive.afterSuggestion.ghost
+      && exclusive.ghostAgain
+      && exclusive.afterGhost.ghost && !exclusive.afterGhost.suggestion,
+    exclusive)
+
+  // 13) Issue #15 ②③: a wrapped prediction clamps to two lines with an ellipsis,
+  //     and the hint gets its own room below the text instead of landing inside it.
+  await clearComposer(page)
+  await seamShowSuggestion(page, '这是一段用于校验两行截断与提示不重叠的很长的预测文本，'.repeat(6))
+  await sleep(600)
+  const wrapped = await page.evaluate(() => {
+    const container = document.querySelector('.dsh-ph-suggest')
+    const text = document.querySelector('.dsh-ph-suggest-text')
+    const hint = document.querySelector('.dsh-ph-suggest-hint')
+    if (container === null || text === null) return null
+    const box = container.getBoundingClientRect()
+    const textBox = text.getBoundingClientRect()
+    const hintBox = hint === null ? null : hint.getBoundingClientRect()
+    return {
+      line: Number.parseFloat(getComputedStyle(container).lineHeight),
+      containerHeight: box.height,
+      containerBottom: box.bottom,
+      textHeight: textBox.height,
+      textBottom: textBox.bottom,
+      hintTop: hintBox === null ? null : hintBox.top,
+      hintBottom: hintBox === null ? null : hintBox.bottom,
+      hintText: (hint?.textContent ?? '').trim().slice(0, 10),
+    }
+  })
+  check('a wrapped prediction clamps to two lines and keeps its hint clear',
+    wrapped !== null
+      && wrapped.textHeight <= wrapped.line * 2 + 2
+      && wrapped.containerHeight >= wrapped.textHeight - 1
+      // Either the hint is gone (wrapped text drops it) or it sits below the text.
+      && (wrapped.hintText === '' || wrapped.hintTop >= wrapped.textBottom - 1),
+    wrapped)
+  await seamHideSuggestion(page)
+
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })
