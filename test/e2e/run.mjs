@@ -8,6 +8,7 @@
  */
 import { launch, openApp, startServer } from './harness.mjs'
 import { composerSuite } from './composer.mjs'
+import { hintLayoutSuite } from './hintLayout.mjs'
 import { overlaySuite } from './overlay.mjs'
 import { sideChatSuite } from './sidechat.mjs'
 
@@ -45,6 +46,7 @@ try {
   await suite('overlay', () => overlaySuite(page, check))
   await suite('composer', () => composerSuite(page, check))
   await suite('side chat', () => sideChatSuite(page, check, browser))
+  await suite('hint layout', () => hintLayoutSuite(browser, check))
   check('no console errors during the run', errors.length === 0, { errors: errors.slice(0, 3) })
 } catch (error) {
   console.error(`\nharness error: ${String(error).slice(0, 400)}`)

@@ -112,6 +112,25 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
       <p className="dsh-ph-note">{t('sideChat.note')}</p>
 
       <p className="dsh-ph-note">{t('bridge.label')}：{bridgeReady ? t('bridge.on') : t('bridge.off')}</p>
+      <p className="dsh-ph-subgroup">{t('suggest.layoutLabel')}</p>
+      <label className="dsh-ph-row">
+        <input
+          type="radio"
+          name="dsh-ph-suggest-layout"
+          checked={prefs.suggestLayout !== 'oneLineWithHint'}
+          onChange={() => { setPref('suggestLayout', 'twoLines') }}
+        />
+        <span>{t('suggest.layoutTwo')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="radio"
+          name="dsh-ph-suggest-layout"
+          checked={prefs.suggestLayout === 'oneLineWithHint'}
+          onChange={() => { setPref('suggestLayout', 'oneLineWithHint') }}
+        />
+        <span>{t('suggest.layoutOne')}</span>
+      </label>
       <p className="dsh-ph-note">{t('suggest.keys')}</p>
       <p className="dsh-ph-note">{t('settings.note')}</p>
     </div>

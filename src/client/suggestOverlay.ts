@@ -12,6 +12,7 @@ import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
 import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
+import { getPrefs } from './prefs.ts'
 import { claimComposer, registerSuggestionHider } from './overlayExclusion.ts'
 import { sitBelowCover } from './occlusion.ts'
 
@@ -253,6 +254,7 @@ function paint(): boolean {
     painted.text, painted.hint, painted.pending === true ? '1' : '0',
     round(box.left), round(box.top), round(box.width), round(box.height), round(box.line),
     style.font, style.letterSpacing, round(style.fontSize),
+    getPrefs().suggestLayout,
   ].join('\u0000')
   // A popup covering the composer outranks the overlay's own layer; drop just
   // below it so the panel covers the ghost instead of the ghost bleeding around
@@ -275,12 +277,16 @@ function paint(): boolean {
   // The prediction may itself mention Tab (the conversation talks about it);
   // never repeat the hint in that case. A pending line never carries one.
   const wantHint = painted.pending !== true && painted.hint !== '' && !/tab/i.test(painted.text)
+  // `oneLineWithHint` clamps the prediction to a single line and always renders the
+  // hint as a block below it — the shape that fits a 48 px composer exactly.
+  const layout = getPrefs().suggestLayout
+  const oneLine = layout === 'oneLineWithHint'
+  const maxLines = oneLine ? 1 : MAX_TEXT_LINES
 
-  // ③ Two lines is what Codex shows, and it is the most a composer can display
-  // without the prediction swallowing the draft. The clamp gives a real ellipsis
-  // instead of letting overflow:hidden cut mid-sentence.
+  // The clamp gives a real ellipsis instead of letting overflow:hidden cut the
+  // sentence mid-word.
   textEl.style.display = '-webkit-box'
-  textEl.style.webkitLineClamp = String(MAX_TEXT_LINES)
+  textEl.style.webkitLineClamp = String(maxLines)
   textEl.style.webkitBoxOrient = 'vertical'
   textEl.style.overflow = 'hidden'
 
@@ -293,23 +299,39 @@ function paint(): boolean {
     el.style.top = `${box.top}px`
     el.style.width = `${box.width}px`
     el.style.lineHeight = `${box.line}px`
-    // ② The container follows its content: a clamped two-line prediction needs
-    // more room than an empty editor had, and clipping it was what made long
-    // predictions read as a smear. Height is finished below, once measured.
+    // The container follows its content: a clamped prediction needs more room than
+    // an empty editor had, and clipping it was what made long predictions read as a
+    // smear. Height is finished below, once measured.
     el.style.height = `${box.height}px`
     hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
-    // The hint trails a one-line prediction. A wrapped one already fills the
-    // composer's room, so the hint is dropped rather than laid over the footer.
     hintEl.textContent = wantHint ? ` ${painted.hint}` : ''
   })
 
   const textHeight = textEl.getBoundingClientRect().height
-  const wrapped = textHeight > box.line * 1.5
-  // Nothing to trail once the text wraps: the hint would either overlap the second
-  // line or grow the overlay past the composer footer.
-  if (wrapped) asSelfWrite(() => { hintEl.textContent = '' })
-  const height = Math.max(box.height, textHeight)
-  if (Math.abs(height - box.height) > 0.5) asSelfWrite(() => { el.style.height = `${height}px` })
+  const textIsOneLine = textHeight <= box.line * 1.5
+  const showHint = wantHint && (oneLine || textIsOneLine)
+  // A wrapped two-line prediction already fills the room the hint would need, so
+  // the hint is dropped there (it would land on the composer footer).
+  const blockHint = showHint && oneLine
+  // The hint's FINAL layout has to be in the DOM before it is measured: measuring
+  // the inline version and then switching to a block under-sized the container.
+  asSelfWrite(() => {
+    if (!showHint) {
+      hintEl.textContent = ''
+      hintEl.classList.remove('dsh-ph-suggest-hint--block')
+    } else if (blockHint) {
+      hintEl.classList.add('dsh-ph-suggest-hint--block')
+      hintEl.textContent = painted.hint
+    } else {
+      hintEl.classList.remove('dsh-ph-suggest-hint--block')
+      hintEl.textContent = ` ${painted.hint}`
+    }
+  })
+  const hintHeight = showHint && blockHint ? hintEl.getBoundingClientRect().height : 0
+  asSelfWrite(() => {
+    const height = Math.max(box.height, textHeight + hintHeight)
+    el.style.height = `${height}px`
+  })
   paintedSignature = signature
   return true
 }

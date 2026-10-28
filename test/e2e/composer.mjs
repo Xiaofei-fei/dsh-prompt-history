@@ -40,7 +40,10 @@ export async function composerSuite(page, check) {
   const longPrompt = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
       .map((row) => (row.textContent ?? '').trim())
-      .filter((text) => text.length > 16)
+      // Quoted prompts start with '>' and menu-ish ones with '@' or '/': completion
+      // and prefix search are not offered there, so the prefix must come from a
+      // plain prompt.
+      .filter((text) => text.length > 16 && !/^[>@/]/.test(text))
     return rows[rows.length - 1] ?? null
   })
   const prefix = (longPrompt ?? lastPrompt ?? '').trim().slice(0, 4)
