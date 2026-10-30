@@ -393,6 +393,60 @@ export async function overlaySuite(page, check) {
     wrapped)
   await seamHideSuggestion(page)
 
+  // 14) Issue #17: the overlay mirrors the EDITOR's type style, not the card's, and
+  //     it must not force its own italic/opacity. A theme that sizes the editor
+  //     differently from the card is the case that exposes the mix.
+  await clearComposer(page)
+  const themed = await page.evaluate(async () => {
+    const style = document.createElement('style')
+    style.setAttribute('data-e2e-type-size', '1')
+    // The card keeps the app's own size; only the editor is re-typed, exactly as a
+    // theme pack does it.
+    style.textContent = '[data-composer-card] [data-composer-input]{font-size:13px !important;font-style:normal !important}'
+    document.head.appendChild(style)
+    // A theme switch is an attribute change, not a resize: this is what has to
+    // invalidate the cached type style.
+    document.documentElement.setAttribute('data-e2e-theme', 'dark')
+    const seam = window.__dshPhTest
+    const host = document.querySelector('[data-composer-input]')
+    if (seam === undefined || host === null) return null
+    host.focus()
+    seam.showPending('正在预测下一条…', host, { hidePlaceholder: false })
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const overlay = document.querySelector('.dsh-ph-suggest')
+    const text = document.querySelector('.dsh-ph-suggest-text')
+    if (overlay === null || text === null) return null
+    const overlayStyle = getComputedStyle(overlay)
+    const textStyle = getComputedStyle(text)
+    return {
+      hostSize: getComputedStyle(host).fontSize,
+      overlaySize: overlayStyle.fontSize,
+      textSize: textStyle.fontSize,
+      textStyle: textStyle.fontStyle,
+      textOpacity: textStyle.opacity,
+      inlineFont: overlay.style.font,
+    }
+  })
+  const pendingState = themed === null
+    ? null
+    : {
+      ...themed,
+      matchesEditor: themed.textSize === themed.hostSize && themed.overlaySize === themed.hostSize,
+    }
+  await page.evaluate(() => {
+    document.querySelector('[data-e2e-type-size]')?.remove()
+    document.documentElement.removeAttribute('data-e2e-theme')
+    window.__dshPhTest?.hideSuggestion()
+  })
+  check('the overlay mirrors the editor type and forces no italic',
+    pendingState !== null
+      && pendingState.matchesEditor === true
+      && pendingState.textStyle === 'normal'
+      && Number(pendingState.textOpacity) >= 0.9
+      && pendingState.inlineFont === '',
+    pendingState)
+  await sleep(200)
+
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,
     { placeholderWhileShown, placeholderAfterHide })

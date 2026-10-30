@@ -11,7 +11,7 @@
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
-import { composerTypeStyle, invalidateTypeStyle } from './typeStyle.ts'
+import { applyTypeVariables, composerTypeStyle, invalidateTypeStyle, subscribeTypeStyle } from './typeStyle.ts'
 import { getPrefs } from './prefs.ts'
 import { claimComposer, registerSuggestionHider } from './overlayExclusion.ts'
 import { sitBelowCover } from './occlusion.ts'
@@ -154,10 +154,19 @@ function ensureStyle(): void {
   tag.dataset.pluginCss = 'dsh-ph-suggest'
   tag.textContent = [
     `.${CLASS}{position:fixed;z-index:2147482000;pointer-events:none;overflow:hidden;`,
-    'white-space:pre-wrap;word-break:break-word;}',
-    `.${CLASS} .dsh-ph-suggest-text{color:var(--dsw-alias-label-primary);opacity:.42;}`,
-    `.${CLASS}--pending .dsh-ph-suggest-text{opacity:.26;font-style:italic;}`,
-    `.${CLASS} .dsh-ph-suggest-hint{color:var(--dsw-alias-label-primary);opacity:.3;}`,
+    'white-space:pre-wrap;word-break:break-word;',
+    // Typography comes from the editor through custom properties (set in paint),
+    // so a theme rule targeting this class still outranks the plugin's own
+    // stylesheet — inline longhands used to lock it away (issue #17).
+    'font-family:var(--dsh-ph-font-family,inherit);font-size:var(--dsh-ph-font-size,inherit);',
+    'font-weight:var(--dsh-ph-font-weight,inherit);font-style:var(--dsh-ph-font-style,normal);',
+    'letter-spacing:var(--dsh-ph-letter-spacing,normal);line-height:var(--dsh-ph-line-height,normal);}',
+    // Same slot as the composer placeholder, so the same semantic colour it uses:
+    // the prediction is a stand-in for placeholder text, not body text.
+    `.${CLASS} .dsh-ph-suggest-text{color:var(--dsw-alias-label-caption,currentColor);opacity:1;}`,
+    `.${CLASS}--pending .dsh-ph-suggest-text{opacity:1;font-style:inherit;}`,
+    `.${CLASS} .dsh-ph-suggest-hint{font-size:var(--dsh-ph-hint-size,.9em);`,
+    'color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-caption,currentColor));opacity:1;}',
     `.${CLASS} .dsh-ph-suggest-hint--block{display:block;}`,
     // The composer's own hint must not sit under the prediction.
     `[data-composer-card].${CARD_CLASS} [data-composer-placeholder],`,
@@ -179,6 +188,7 @@ export function installSuggestStyle(): void {
 // A popup or card appearing must schedule a frame: the occlusion probe is gated
 // on "nothing changed", so the change itself has to wake the paint.
 subscribeOcclusionDirty(() => { scheduleFrame(paint) })
+subscribeTypeStyle(() => { scheduleFrame(paint) })
 
 // The completion ghost must let go of the composer when a prediction appears.
 registerSuggestionHider(hideSuggestion)
@@ -248,12 +258,13 @@ function paint(): boolean {
     if (painted.host.getClientRects().length === 0) hideSuggestion()
     return false
   }
-  const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
-  const style = composerTypeStyle(card)
+  // The editor host owns the type the prediction must mirror; the card is only the
+  // outer container and a theme may size it differently (issue #17).
+  const style = composerTypeStyle(painted.host)
   const signature = [
     painted.text, painted.hint, painted.pending === true ? '1' : '0',
     round(box.left), round(box.top), round(box.width), round(box.height), round(box.line),
-    style.font, style.letterSpacing, round(style.fontSize),
+    style.fontFamily, style.fontWeight, style.fontStyle, style.letterSpacing, round(style.fontSize),
     getPrefs().suggestLayout,
   ].join('\u0000')
   // A popup covering the composer outranks the overlay's own layer; drop just
@@ -293,8 +304,7 @@ function paint(): boolean {
   asSelfWrite(() => {
     el.textContent = ''
     el.append(textEl, hintEl)
-    el.style.font = style.font
-    el.style.letterSpacing = style.letterSpacing
+    applyTypeVariables(el, style, box.line)
     el.style.left = `${box.left}px`
     el.style.top = `${box.top}px`
     el.style.width = `${box.width}px`
@@ -303,7 +313,7 @@ function paint(): boolean {
     // an empty editor had, and clipping it was what made long predictions read as a
     // smear. Height is finished below, once measured.
     el.style.height = `${box.height}px`
-    hintEl.style.fontSize = `${Math.max(10, style.fontSize - 2)}px`
+    el.style.setProperty('--dsh-ph-hint-size', `${Math.max(10, style.fontSize - 2)}px`)
     hintEl.textContent = wantHint ? ` ${painted.hint}` : ''
   })
 
