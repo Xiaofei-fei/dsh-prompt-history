@@ -5,7 +5,8 @@
  * @module dsh-prompt-history/test/e2e/composer
  */
 import {
-  clearComposer, composerText, focusComposer, normalizePrompt, openFirstSession, sleep,
+  clearComposer, clearQuotes, composerText, ensureSessionMessage, focusComposer,
+  normalizePrompt, openFirstSession, quoteFromUserRow, quoteState, sleep,
 } from './harness.mjs'
 
 /**
@@ -14,7 +15,13 @@ import {
  * @param check - the runner's assertion collector.
  */
 export async function composerSuite(page, check) {
-  const lastPrompt = await openFirstSession(page)
+  let lastPrompt = await openFirstSession(page)
+  // A fresh scratch profile opens an empty session; seed one prompt so the
+  // recall checks have a newest message to compare against. Sending works
+  // without a model (only the assistant turn afterwards reports the missing
+  // credential), so no provider is needed for the suite.
+  const seeded = await ensureSessionMessage(page)
+  if (lastPrompt === null) lastPrompt = seeded
   await focusComposer(page)
   await clearComposer(page)
 
@@ -105,33 +112,23 @@ export async function composerSuite(page, check) {
     { searchOpen, searchHit })
 
   // 6) Regression: 引用 must read the selection the user made even while the
-  //    composer still holds focus (it does right after sending a message).
+  //    composer still holds focus (it does right after sending a message), and
+  //    it must not write the '> ' blockquote into the draft any more: the quote
+  //    becomes a note next to the composer and is folded in on submit.
   await clearComposer(page)
-  await page.evaluate(() => {
-    const editor = document.querySelector('[data-composer-input]')
-    if (editor !== null) editor.focus()
-    const row = document.querySelector('[data-chat-flow-kind="user"]')
-    if (row === null) return
-    const range = document.createRange()
-    range.selectNodeContents(row)
-    const selection = document.getSelection()
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-    document.dispatchEvent(new Event('selectionchange'))
-  })
-  await sleep(900)
-  const buttons = await page.evaluate(() => [...document.querySelectorAll('.dsh-ph-toolbar button')]
-    .map((b) => (b.textContent ?? '').trim()))
-  await page.evaluate(() => {
-    const quote = [...document.querySelectorAll('.dsh-ph-toolbar button')]
-      .find((b) => /引用|Quote/.test(b.textContent ?? ''))
-    if (quote !== undefined) quote.click()
-  })
-  await sleep(1000)
-  const quoted = (await composerText(page) ?? '').trim()
-  check('quote inserts the conversation selection while the composer holds focus',
-    quoted.startsWith('> '),
-    { buttons, quoted: quoted.slice(0, 30) })
+  await clearQuotes(page)
+  await focusComposer(page)
+  const focusedQuote = await quoteFromUserRow(page)
+  const focusedState = await quoteState(page)
+  const focusKept = await page.evaluate(() => document.activeElement === document.querySelector('[data-composer-input]'))
+  const focusedDraft = focusedState.draft ?? ''
+  check('quote takes the conversation selection while the composer holds focus',
+    focusedQuote.clicked && focusedQuote.selected !== '' && focusKept,
+    { buttons: focusedQuote.labels, focusKept, selected: (focusedQuote.selected ?? '').slice(0, 30) })
+  check('quote keeps "> " out of the composer draft',
+    focusedDraft.trim() === '' && !/^> /m.test(focusedDraft) && focusedState.rows.length === 1,
+    { draft: JSON.stringify(focusedDraft.slice(0, 30)), rows: focusedState.rows.length })
+  await clearQuotes(page)
   await clearComposer(page)
 
   // 7) The chat TOC opens with entries.

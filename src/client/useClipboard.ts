@@ -1,8 +1,8 @@
 /**
  * Clipboard behaviour for the composer: terminal-style right-click paste, the
  * two copy-on-select modes, the selection toolbar (复制 / 引用 / 侧聊追问), and
- * the quote insertion that puts the selected text in the composer as a
- * markdown blockquote.
+ * the quote action — which queues the selection as a numbered note above the
+ * composer instead of pasting a blockquote into the draft (see quoteMarks).
  *
  * Both halves install document-level capture listeners once; everything they
  * need at event time comes through the composer's live ref, so no listener is
@@ -10,7 +10,7 @@
  *
  * @module dsh-prompt-history/client/useClipboard
  */
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   flashCopied, hideSelectionToolbar, showSelectionToolbar,
 } from './feedback.ts'
@@ -20,12 +20,15 @@ import {
 } from './editor.ts'
 import { getPrefs } from './prefs.ts'
 import { quoteBlock, sendToSideChat } from './bridge.ts'
+import { addQuoteEntry, selectionAnchor } from './quoteMarks.tsx'
 import type { LiveComposer } from './useSuggestion.ts'
 
 /** What the composer hands the hook. */
 export interface ClipboardInput {
   /** Live composer state (draft, phase, removed, inputActions). */
   readonly liveRef: { readonly current: LiveComposer }
+  /** Current session id (quotes are queued per session). */
+  readonly sessionId: string | undefined
 }
 
 /**
@@ -33,7 +36,11 @@ export interface ClipboardInput {
  * @param input - the composer's live ref.
  */
 export function useClipboard(input: ClipboardInput): void {
-  const { liveRef } = input
+  const { liveRef, sessionId } = input
+  // The listeners below mount once per composer, so they read the current
+  // session through a ref: a session switch must not send quotes to the old one.
+  const sessionRef = useRef(sessionId)
+  sessionRef.current = sessionId
 
   // Right-click paste (terminal style): a right-click on the composer editor
   // pastes the clipboard directly, like a Linux terminal.
@@ -163,11 +170,10 @@ export function useClipboard(input: ClipboardInput): void {
       dragStartedInEditor = isEditorTarget(e.target)
     }
 
-    // 引用: insert the FULL selected text into the composer as a markdown quote
-    // block (each line prefixed with '> ', Codex-style) — everything is visible
-    // and editable in the input. A blank line before (unless the draft starts
-    // there) and a blank line after keep the quote distinct from the user's own
-    // next input, which begins on a fresh line after the caret.
+    // 引用: queue the FULL selected text as a numbered note above the composer
+    // (Codex-style). The draft is left untouched — the note is merged into the
+    // message when the user sends, so the input stays exactly
+    // what the user typed.
     const quoteSelection = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
@@ -179,7 +185,6 @@ export function useClipboard(input: ClipboardInput): void {
       // in-composer selection read instead and nothing would happen.
       const sel = document.getSelection()
       const selectionInHost = sel !== null && sel.rangeCount > 0 && sel.anchorNode !== null && host.contains(sel.anchorNode)
-      const hostFocused = selectionInHost
       let text = ''
       if (selectionInHost) {
         text = editorSelectedText(host)
@@ -187,23 +192,12 @@ export function useClipboard(input: ClipboardInput): void {
         text = sel.toString()
       }
       if (text.trim() === '') return
-      // A plain markdown blockquote (each line prefixed with '> '), matching how
-      // other DSH quote plugins format it — minimal and clean in the input,
-      // rendered as a proper blockquote when sent.
-      const quoted = '> ' + text.replace(/\n/g, '\n> ')
-      const draft = live.draft
-      const caret = hostFocused ? (editorSelectionOffsets(host)?.start ?? draft.length) : draft.length
-      // A blank line before the quote separates it from prior text; a SINGLE
-      // newline after lets the next input start on the line right below it.
-      const lead = caret > 0 && draft[caret - 1] !== '\n' ? '\n\n' : caret > 0 ? '\n' : ''
-      const tail = '\n'
-      const next = draft.slice(0, caret) + lead + quoted + tail + draft.slice(caret)
-      live.inputActions.setDraft?.(next)
-      const pos = caret + lead.length + quoted.length + tail.length
-      requestAnimationFrame(() => {
-        focusEditor(host)
-        setEditorCaret(host, pos)
-      })
+      // Anchored while the selection is still live: the badge is rebuilt from
+      // this anchor every frame, so it follows its text when the transcript
+      // scrolls instead of drifting away from it.
+      const anchor = selectionAnchor()
+      addQuoteEntry(sessionRef.current, text, anchor)
+      requestAnimationFrame(() => { focusEditor(host) })
       flashCopied(null, T('pill.quoted'))
     }
 
