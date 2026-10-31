@@ -8,13 +8,13 @@
  * composer reads its caret through the DOM selection, this one owns its value.
  *
  * Keys: ↑/↓ browse (prefix search when the line is non-empty), Tab or → accept
- * (history suffix, or the predicted prompt while empty), Esc dismiss, Enter
- * send, Shift+Enter newline.
+ * (history suffix, model continuation, or the predicted prompt while empty),
+ * Esc dismiss, Enter send, Shift+Enter newline.
  *
  * @module dsh-prompt-history/client/panelComposer
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { matchCompletion } from './completion.ts'
+import { completionEligible, matchCompletion } from './completion.ts'
 import { prefixMatches, RESET_BROWSE, stepPrefix, type BrowseState } from './browse.ts'
 import { getPrefs, subscribePrefs } from './prefs.ts'
 import { getActiveBridge, subscribeBridge } from './suggest.ts'
@@ -39,6 +39,8 @@ export interface PromptComposerProps {
 
 /** Debounce before asking the host to predict. */
 const PREDICT_DELAY = 450
+/** Shorter drafts are too ambiguous to continue usefully. */
+const AI_MIN_DRAFT = 3
 
 /** The side-chat composer entry. */
 export function PromptComposer(props: PromptComposerProps): JSX.Element {
@@ -50,11 +52,17 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
   const timerRef = useRef<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const [bridged, setBridged] = useState(() => getActiveBridge() !== null)
+  /** The model's continuation for the current draft (null while unknown). */
+  const [aiSuffix, setAiSuffix] = useState<string | null>(null)
+  const aiTimerRef = useRef<number | null>(null)
+  const aiAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => subscribeBridge(() => { setBridged(getActiveBridge() !== null) }), [])
 
   /** The history suffix that would complete the current draft. */
-  const suffix = useMemo(() => matchCompletion(value, history), [value, history])
+  const historySuffix = useMemo(() => matchCompletion(value, history), [value, history])
+  /** What Tab accepts: history first (free and exact), then the model's tail. */
+  const suffix = historySuffix ?? aiSuffix
 
   const clearPrediction = useCallback((): void => {
     if (timerRef.current !== null) {
@@ -65,6 +73,17 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
     abortRef.current = null
     predictionRef.current = null
     hideSuggestion()
+  }, [])
+
+  /** Drop a scheduled or in-flight continuation for the draft that just changed. */
+  const clearContinuation = useCallback((): void => {
+    if (aiTimerRef.current !== null) {
+      window.clearTimeout(aiTimerRef.current)
+      aiTimerRef.current = null
+    }
+    aiAbortRef.current?.abort()
+    aiAbortRef.current = null
+    setAiSuffix(null)
   }, [])
 
   /** Ask the host for the next prompt and ghost it inside the empty field. */
@@ -83,7 +102,7 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null
       showPending(T('suggest.pending'), area, { hidePlaceholder: false })
-      void bridge.fetch(context, controller.signal).then((text) => {
+      void bridge.fetch(context, { signal: controller.signal }).then((text) => {
         if (controller.signal.aborted) return
         if (text === '') { hideSuggestion(); return }
         predictionRef.current = text
@@ -97,6 +116,27 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
     if (value !== '' || running) clearPrediction()
   }, [value, running, clearPrediction])
 
+  // The typed draft is the continuation seed: history first, then the model.
+  // Re-runs on every keystroke, so the pending timer always belongs to the text
+  // on screen and a stale answer can never be painted.
+  useEffect(() => {
+    clearContinuation()
+    if (value === '' || running || historySuffix !== null) return
+    if (!getPrefs().promptCompletion || !getPrefs().aiCompletion) return
+    if (!completionEligible(value) || value.trim().length < AI_MIN_DRAFT) return
+    const bridge = getActiveBridge()
+    if (bridge === null) return
+    aiTimerRef.current = window.setTimeout(() => {
+      aiTimerRef.current = null
+      const controller = new AbortController()
+      aiAbortRef.current = controller
+      void bridge.fetch(predictContext(), { draft: value, signal: controller.signal }).then((text) => {
+        if (controller.signal.aborted || text === '') return
+        setAiSuffix(text)
+      })
+    }, PREDICT_DELAY)
+  }, [value, running, historySuffix, predictContext, clearContinuation])
+
   // Re-arm the prediction when the transcript changes (a finished turn).
   useEffect(() => {
     if (value === '' && !running) requestPrediction()
@@ -104,7 +144,7 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [predictContext, running, bridged])
 
-  useEffect(() => () => { clearPrediction() }, [clearPrediction])
+  useEffect(() => () => { clearPrediction(); clearContinuation() }, [clearPrediction, clearContinuation])
   useEffect(() => subscribePrefs(() => { if (value === '' && !running) requestPrediction() }), [requestPrediction, value, running])
 
   /** Accept whatever hint is on screen. @returns whether something was accepted. */
@@ -116,6 +156,7 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
       return true
     }
     if (suffix !== null) {
+      clearContinuation()
       onChange(value + suffix)
       return true
     }
@@ -170,6 +211,7 @@ export function PromptComposer(props: PromptComposerProps): JSX.Element {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       clearPrediction()
+      clearContinuation()
       onSubmit()
     }
   }

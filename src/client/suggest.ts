@@ -22,6 +22,8 @@ interface RemoteFace {
 export interface SuggestRequest {
   /** Recent conversation, oldest → newest, flattened to plain text. */
   readonly context: string
+  /** The in-progress draft, when this is a continuation rather than a prediction. */
+  readonly draft?: string
   /** Provider route override; the host default is used when absent. */
   readonly provider?: string
   /** Provider-owned model id override; the host default is used when absent. */
@@ -30,7 +32,7 @@ export interface SuggestRequest {
 
 /** One prediction result (mirrors the host contract). */
 export interface SuggestResult {
-  /** Single-line predicted prompt, or '' when unavailable. */
+  /** Single-line predicted prompt (or continuation suffix), or '' when unavailable. */
   readonly text: string
 }
 
@@ -82,15 +84,26 @@ const CONTRIBUTION = {
   ],
 } as const
 
+/** One bridge call's options. */
+export interface SuggestOptions {
+  /**
+   * The draft being continued. Present means "finish this message"; the answer
+   * is the text that follows the draft, not a fresh prompt.
+   */
+  readonly draft?: string
+  /** Cancellation (a new keystroke or a submit aborts it). */
+  readonly signal?: AbortSignal
+}
+
 /** The mounted bridge: fetch one prediction, or '' when unavailable. */
 export interface SuggestBridge {
   /**
-   * Ask the host for a predicted next prompt.
+   * Ask the host for a predicted next prompt, or for the rest of a draft.
    * @param context - recent conversation text.
-   * @param signal - cancellation (a new keystroke or a submit aborts it).
-   * @returns the predicted single-line prompt, or '' when unavailable.
+   * @param options - the draft being continued and/or the abort signal.
+   * @returns the predicted single line (or continuation suffix), '' when unavailable.
    */
-  fetch(context: string, signal?: AbortSignal): Promise<string>
+  fetch(context: string, options?: SuggestOptions): Promise<string>
 }
 
 /**
@@ -130,12 +143,16 @@ export function createBridge(ctx: unknown): SuggestBridge | null {
   const call = api?.suggest
   if (typeof call !== 'function' || api === undefined) return null
   return {
-    async fetch(context: string, signal?: AbortSignal): Promise<string> {
+    async fetch(context: string, options: SuggestOptions = {}): Promise<string> {
       try {
         // The carrier validates the argument count against the descriptor, so
         // the business argument is the only one sent; cancellation is honoured
         // by discarding the result (the caller checks its own signal).
-        const raw = await call.call(api, { context }) as
+        const draft = options.draft
+        const request: SuggestRequest = draft === undefined || draft === ''
+          ? { context }
+          : { context, draft }
+        const raw = await call.call(api, request) as
           | SuggestResult
           | { readonly ok: true; readonly value: SuggestResult }
           | { readonly ok: false }
@@ -190,18 +207,47 @@ export function getActiveBridge(): SuggestBridge | null {
 }
 
 /** Longest conversation tail handed to the model. */
-const MAX_CONTEXT = 6000
+const MAX_CONTEXT = 8000
 /** Rows of conversation inspected, newest last. */
-const MAX_ROWS = 8
-/** Longest text kept per row. */
-const MAX_ROW = 1200
+const MAX_ROWS = 12
+/** Longest text kept from the START of one row (its question or opening). */
+const MAX_ROW_HEAD = 900
+/** Longest text kept from the END of one row (its conclusion and next step). */
+const MAX_ROW_TAIL = 700
+/** Marker inserted where a long row was cut. */
+const CUT = ' … '
+
+/** Row kinds that carry conversation. Tool/plan rows are UI, not dialogue. */
+const CONVERSATION_KINDS = new Set(['user', 'steering', 'assistant'])
+
+/**
+ * Relative timestamps the transcript repaints constantly: they are not
+ * conversation and would re-key the prediction cache on every repaint.
+ */
+const TIMESTAMP = /(?:刚刚|\d+\s*(?:秒|分钟|小时|天|周|个月|年)前?|\b\d{1,2}:\d{2}\b)/g
+
+/**
+ * Keep both ends of a long row.
+ *
+ * A long assistant answer carries the question at the top and its conclusion,
+ * caveat or proposed next step at the BOTTOM. The old head-only slice handed the
+ * model the preamble and hid the part that decides what to ask next, which is
+ * why predictions read as if the model had not read the answer at all.
+ * @param text - the row's normalized text.
+ * @returns the text, cut in the middle when it is too long.
+ */
+function condense(text: string): string {
+  if (text.length <= MAX_ROW_HEAD + MAX_ROW_TAIL) return text
+  return `${text.slice(0, MAX_ROW_HEAD)}${CUT}${text.slice(-MAX_ROW_TAIL)}`
+}
 
 /**
  * Flatten the visible conversation into role-tagged text for the predictor.
  *
  * Reads the rendered rows (they carry both sides of the conversation, which the
  * node projection does not) and normalizes whitespace so the prompt stays
- * compact.
+ * compact. Rows whose flow kind is not a conversation turn are skipped: a tool
+ * call card, a plan block or a diff summary is not something the user said.
  * @returns the context tail, or '' when the conversation is not readable.
  */
 export function buildContext(): string {
@@ -209,16 +255,14 @@ export function buildContext(): string {
   const parts: string[] = []
   for (const row of rows) {
     const kind = row.getAttribute('data-chat-flow-kind')
+    if (kind !== null && !CONVERSATION_KINDS.has(kind)) continue
     const role = kind === 'user' || kind === 'steering' ? 'user' : 'assistant'
-    // Row text carries relative timestamps ("23分钟") that keep mutating; they
-    // are not conversation and would re-key the cache on every repaint.
-    const text = (row.textContent ?? '')
-      .replace(/\s+/g, ' ')
-      .replace(/(刚刚|\d+\s*(?:秒|分钟|小时|天|周|个月|年)前?)/g, ' ')
-      .replace(/\b\d{1,2}:\d{2}\b/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, MAX_ROW)
+    const text = condense(
+      (row.textContent ?? '')
+        .replace(TIMESTAMP, ' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
     if (text !== '') parts.push(`${role}: ${text}`)
   }
   const joined = parts.join('\n')
