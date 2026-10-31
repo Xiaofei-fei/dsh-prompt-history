@@ -14,8 +14,7 @@
  * @module dsh-prompt-history/client/useComposerKeys
  */
 import { useEffect, useRef } from 'react'
-import { COMPOSER_CARD, editorHost, editorSelectionOffsets, isEditorTarget, setEditorCaret } from './editor.ts'
-import { matchCompletion } from './completion.ts'
+import { COMPOSER_CARD, editorHost, isEditorTarget, setEditorCaret } from './editor.ts'
 import { getPrefs } from './prefs.ts'
 import type { BrowseControls } from './useBrowse.ts'
 import type { CompletionControls } from './useCompletion.ts'
@@ -60,7 +59,7 @@ export function useComposerKeys(input: ComposerKeysInput): void {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      const { live, history, suggestion, completion, browsing } = apiRef.current
+      const { live, suggestion, completion, browsing } = apiRef.current
       const target = e.target
       // The prediction belongs to the composer even when the caret wandered off
       // (clicking around the page is normal while reading a suggestion): accept
@@ -121,38 +120,36 @@ export function useComposerKeys(input: ComposerKeysInput): void {
         }
       }
 
-      // Prompt completion: Tab (or →) accepts the ghosted suffix.
+      // Prompt completion: Tab (or →) accepts the ghosted suffix, whichever
+      // source painted it (history match or model continuation). The ghost only
+      // exists while the caret sits at the end of an eligible draft, so the
+      // accept path does not re-derive the match and cannot disagree with what
+      // the user is looking at.
       if (getPrefs().promptCompletion && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.key === 'Escape' && completion.visible()) {
           completion.dismiss()
           return
         }
         if ((e.key === 'Tab' || (e.key === 'ArrowRight' && !e.shiftKey)) && !e.shiftKey) {
+          const suffix = completion.current()
           const host = editorHost()
-          if (host !== null) {
-            const offsets = editorSelectionOffsets(host)
-            const atEnd = offsets !== null && offsets.start === live.draft.length && offsets.end === live.draft.length
-            if (atEnd) {
-              const suffix = matchCompletion(live.draft, history)
-              if (suffix !== null) {
-                e.preventDefault()
-                e.stopPropagation()
-                const actions = live.inputActions
-                let inserted = false
-                if (typeof actions.captureInsertion === 'function' && typeof actions.insertText === 'function') {
-                  try { inserted = actions.insertText(suffix, actions.captureInsertion() as never) === true } catch { inserted = false }
-                }
-                if (!inserted) {
-                  // Legacy hosts (DSH <= 0.1.x) have no insertText: replace the
-                  // draft and park the caret after the accepted suffix.
-                  const full = live.draft + suffix
-                  actions.setDraft?.(full)
-                  setEditorCaret(host, full.length)
-                }
-                completion.sync()
-                return
-              }
+          if (suffix !== null && suffix !== '' && host !== null) {
+            e.preventDefault()
+            e.stopPropagation()
+            const actions = live.inputActions
+            let inserted = false
+            if (typeof actions.captureInsertion === 'function' && typeof actions.insertText === 'function') {
+              try { inserted = actions.insertText(suffix, actions.captureInsertion() as never) === true } catch { inserted = false }
             }
+            if (!inserted) {
+              // Legacy hosts (DSH <= 0.1.x) have no insertText: replace the
+              // draft and park the caret after the accepted suffix.
+              const full = live.draft + suffix
+              actions.setDraft?.(full)
+              setEditorCaret(host, full.length)
+            }
+            completion.sync()
+            return
           }
         }
       }

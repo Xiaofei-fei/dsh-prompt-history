@@ -4,7 +4,8 @@
  * The browser cannot reach a model: the harness owns `ctx.llm` (provider
  * routes, credentials, quota). This service exposes one Remote method to the
  * plugin's client half through the Typert Gateway, so the composer can ask the
- * host for a predicted next prompt.
+ * host for a predicted next prompt — or for the rest of a message the user is
+ * halfway through typing.
  *
  * @module dsh-prompt-history/suggest
  */
@@ -15,6 +16,14 @@ import type { Context } from '@deepseek-ai/cordis'
 export interface SuggestRequest {
   /** Recent conversation, oldest → newest, already flattened to plain text. */
   readonly context: string
+  /**
+   * What the user has typed so far, when this is a continuation request.
+   *
+   * A non-empty draft means "finish this message": the answer is the text that
+   * follows it, never a fresh prompt. Absent or empty is the next-prompt
+   * prediction for an idle composer.
+   */
+  readonly draft?: string
   /** Provider route override; the host default is used when absent. */
   readonly provider?: string
   /** Provider-owned model id override; the host default is used when absent. */
@@ -23,7 +32,7 @@ export interface SuggestRequest {
 
 /** One prediction result. `text` is '' when no suggestion could be produced. */
 export interface SuggestResult {
-  /** Single-line predicted user prompt, or '' when unavailable. */
+  /** Single-line predicted prompt (or continuation suffix), or '' when unavailable. */
   readonly text: string
 }
 
@@ -58,34 +67,89 @@ interface HostDefaultModel {
   currentSelection?: () => { provider?: string; model?: string }
 }
 
-/** Instruction for the prediction call: one line, nothing else. */
-const SYSTEM = [
+/**
+ * Instruction for next-prompt prediction: one line, nothing else.
+ *
+ * The tone/actionability lines matter: a generic "you predict the next message"
+ * produced vague filler ("继续", "运行测试看看") that the user could not have
+ * written. The conversation rows already carry the user's own phrasing, so the
+ * model only has to stay in it.
+ */
+const NEXT_SYSTEM = [
   "You predict the user's next message in a coding-assistant conversation.",
   'Reply with that message only: a single line, no quotes, no explanation, no code fence.',
-  'Match the language the user writes in and keep it under 160 characters.',
+  "Write it the way the user writes: match their language, their level of detail and their tone.",
+  "Prefer a concrete, actionable instruction over a vague one, and refer to the specific file, symbol or step the conversation is about.",
+  'When the assistant just asked a question or offered options, answer that question.',
   'Never mention UI mechanics such as pressing Tab or accepting a suggestion.',
   'If the conversation suggests no clear next step, reply with nothing at all.',
 ].join(' ')
 
+/**
+ * Instruction for finishing an in-progress message.
+ *
+ * The continuation must be *only* the missing tail: the composer appends it at
+ * the caret, so repeating the draft would duplicate what the user already wrote.
+ */
+const CONTINUE_SYSTEM = [
+  "You complete the user's half-written message in a coding-assistant conversation.",
+  'The message below ends exactly where the user stopped typing.',
+  'Reply with ONLY the text that continues it: never repeat what they already wrote, no quotes, no explanation, no code fence.',
+  'Keep their language, tone and formatting, finish the clause naturally, and stay under 120 characters.',
+  'If nothing sensible can follow, reply with nothing at all.',
+].join(' ')
+
 /** Longest conversation tail sent to the model. */
-const MAX_CONTEXT = 6000
-/** Longest accepted suggestion; longer answers are rejected as prose, not a prompt. */
+const MAX_CONTEXT = 8000
+/** Longest draft tail sent as the continuation seed. */
+const MAX_DRAFT = 400
+/** Longest accepted next-prompt suggestion; longer answers are prose, not a prompt. */
 const MAX_TEXT = 200
+/** Longest accepted continuation; a ghost is a clause, not a paragraph. */
+const MAX_CONTINUATION = 160
+
+/**
+ * A leading "Sure, here is..." preamble means the model explained instead of
+ * predicting. Kept only when a colon separates it from the actual answer.
+ */
+const PREAMBLE = /^(?:sure|okay|ok|here(?:'s| is)?|the next|i think)\b[^:：]{0,40}[:：]\s*/i
 
 /**
  * Reduce model output to one plain line, or '' when it is not a usable prompt.
  * @param raw - the accumulated assistant text.
+ * @param maxLength - longest accepted line.
  * @returns the single-line suggestion, or ''.
  */
-function sanitize(raw: string): string {
+function sanitize(raw: string, maxLength: number): string {
   let text = raw.trim()
   if (text.startsWith('```')) text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim()
   text = text.replace(/^[\s"'“”「」]+/, '').replace(/[\s"'“”「」]+$/, '').trim()
   const line = text.split('\n').map((part) => part.trim()).find((part) => part !== '') ?? ''
-  if (line === '' || line.length > MAX_TEXT) return ''
-  // A trailing "here is..." preamble means the model explained instead of predicting.
-  if (/^(sure|okay|ok|here|the next|i think)\b/i.test(line)) return ''
-  return line
+  if (line === '') return ''
+  const withoutPreamble = line.replace(PREAMBLE, '').trim()
+  const answer = withoutPreamble === '' ? line : withoutPreamble
+  return answer.length > maxLength ? '' : answer
+}
+
+/**
+ * Reduce a continuation answer to the missing tail, or '' when it is unusable.
+ *
+ * Models sometimes echo the whole message instead of the tail; the composer
+ * appends whatever comes back at the caret, so an echoed draft has to be cut
+ * off here rather than in the browser.
+ * @param raw - the accumulated assistant text.
+ * @param draft - the draft the request was made for.
+ * @returns the continuation suffix, or ''.
+ */
+function sanitizeContinuation(raw: string, draft: string): string {
+  const text = sanitize(raw, MAX_CONTINUATION * 2)
+  if (text === '') return ''
+  const seed = draft.trimEnd()
+  const body = seed !== '' && text.startsWith(seed) ? text.slice(seed.length) : text
+  // Leading whitespace would push the ghost off the caret; punctuation is kept.
+  const suffix = body.replace(/^[\s"'“”「」]+/, '').trimEnd()
+  if (suffix === '' || suffix.length > MAX_CONTINUATION) return ''
+  return suffix
 }
 
 /** Prompt-suggestion Remote service: turns recent conversation into a next prompt. */
@@ -95,15 +159,18 @@ export class PromptSuggestService extends TypertRemoteService {
   }
 
   /**
-   * Predict the user's next prompt from the recent conversation.
-   * @param request - conversation context plus optional model override.
-   * @returns the predicted single-line prompt ('' when unavailable).
+   * Predict the user's next prompt — or the rest of the one they are typing.
+   * @param request - conversation context, optional in-progress draft, and an
+   *   optional model override.
+   * @returns the predicted single line ('' when unavailable).
    */
   @Remote('suggest')
   async suggest(request: SuggestRequest): Promise<SuggestResult> {
     const ctx = (this as unknown as { ctx: HostServices }).ctx
     const context = typeof request?.context === 'string' ? request.context.slice(-MAX_CONTEXT) : ''
-    if (context.trim() === '') return { text: '' }
+    const draft = typeof request?.draft === 'string' ? request.draft.slice(-MAX_DRAFT) : ''
+    const continuing = draft.trim() !== ''
+    if (context.trim() === '' && !continuing) return { text: '' }
     const llm = ctx.get?.('llm') as HostLlm | undefined
     if (llm === undefined || typeof llm.stream !== 'function') return { text: '' }
     let provider = request.provider
@@ -114,6 +181,15 @@ export class PromptSuggestService extends TypertRemoteService {
       model = model ?? selection?.model
     }
     if (provider === undefined || model === undefined) return { text: '' }
+
+    const system = continuing ? CONTINUE_SYSTEM : NEXT_SYSTEM
+    const prompt = continuing
+      ? (context.trim() === ''
+        ? `The message the user is writing right now, cut at the cursor:\n${draft}`
+        : `${context}\n\n---\nThe message the user is writing right now, cut at the cursor:\n${draft}`)
+      : context
+    /** Turn one raw answer into the shape this request asked for. */
+    const finish = (raw: string): string => continuing ? sanitizeContinuation(raw, draft) : sanitize(raw, MAX_TEXT)
 
     /**
      * Run one prediction call and return the raw assistant text.
@@ -126,8 +202,8 @@ export class PromptSuggestService extends TypertRemoteService {
       const stream = llm.stream({
         provider: provider as string,
         model: model as string,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: [{ type: 'text', text: context }] }],
+        system,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
         maxTokens,
         temperature: 0.2,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
@@ -144,11 +220,11 @@ export class PromptSuggestService extends TypertRemoteService {
     // effort hint (and a larger budget) recovers when the first comes back empty.
     const effort = await pickLowEffort(llm, provider, model)
     try {
-      const first = sanitize(await collect(effort, 1024))
+      const first = finish(await collect(effort, 1024))
       if (first !== '') return { text: first }
       // Second pass without any effort hint (and a larger budget) recovers when
       // the provider ignored the low-effort request.
-      return { text: sanitize(await collect(undefined, 3072)) }
+      return { text: finish(await collect(undefined, 3072)) }
     } catch (error) {
       console.warn('[dsh-prompt-history] prompt-suggestion call failed:', error)
       return { text: '' }

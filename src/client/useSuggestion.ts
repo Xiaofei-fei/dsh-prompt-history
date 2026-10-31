@@ -156,7 +156,7 @@ export function useSuggestion(input: SuggestionInput): SuggestionControls {
       }
       // Tell the user something is happening; the prediction replaces this line.
       showPending(T('suggest.pending'), host)
-      void bridge.fetch(context, controller.signal).then((text) => {
+      void bridge.fetch(context, { signal: controller.signal }).then((text) => {
         pendingRef.current = false
         if (controller.signal.aborted) return
         const latest = liveRef.current

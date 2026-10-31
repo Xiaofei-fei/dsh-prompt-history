@@ -43,6 +43,14 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
         />
         <span>{t('completion.toggle')}</span>
       </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.aiCompletion}
+          onChange={(e) => { setPref('aiCompletion', e.target.checked) }}
+        />
+        <span>{t('completion.aiToggle')}</span>
+      </label>
 
       <p className="dsh-ph-group">{t('settings.groupClipboard')}</p>
       {COPY_MODES.map((mode) => (
