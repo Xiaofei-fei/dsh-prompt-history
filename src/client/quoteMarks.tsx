@@ -9,18 +9,20 @@
  * - A card above the composer lists the entries (number, text, edit, delete),
  *   collapsed to a "N 条注" pill until it is hovered, clicked or focused, and a
  *   matching badge is painted over the transcript text the quote came from.
- * - The draft stays empty. The quotes are prepended to the message by a
- *   capture listener on the send gesture itself (Enter inside the composer, or
- *   a click on the send button), through the composer's public input actions.
+ * - The draft stays empty. On the send gesture itself (Enter inside the
+ *   composer, or a click on the send button) a capture listener cancels that
+ *   gesture, writes the quotes through the composer's public input actions and
+ *   then clicks the primary send control one task later, so the write and the
+ *   submit never race inside one event.
  * - In the transcript, the leading "> ..." blocks of a sent user message are
  *   rendered as a "N 条注释" pill (a user-text rule plus a node renderer)
  *   instead of raw blockquote text.
  *
- * The injection uses captureInsertion()/insertText() while the composer is
- * still idle, so the editor commits the write synchronously and submit() reads
- * the refreshed projection - the same insertion point the composer itself
- * uses. A refused write (busy machine, draft moved on) keeps the notes
- * instead of letting them vanish silently.
+ * The write uses captureInsertion()/insertText() only; insertText() reports
+ * success as soon as the span maps, so the composer is read back to confirm the
+ * text really landed. A refused or unconfirmed write keeps the notes and still
+ * sends the message, instead of letting either the message or the quotes
+ * vanish.
  *
  * @module dsh-prompt-history/client/quoteMarks
  */
@@ -224,22 +226,33 @@ function isSubmitClick(event: MouseEvent, draft: string): boolean {
   return sendControls(card).includes(button)
 }
 
+/** The text the composer currently renders (what a submit would carry). */
+function composerText(): string {
+  const host = document.querySelector('[data-composer-input]')
+  if (host === null) return ''
+  const inner = (host as HTMLElement).innerText
+  return typeof inner === 'string' ? inner : host.textContent ?? ''
+}
+
+/** Whether the injected blockquote really landed in the composer. */
+function draftCarries(payload: string): boolean {
+  const head = payload.split('\n\n')[0] ?? ''
+  if (head === '') return false
+  return composerText().indexOf(head) !== -1
+}
+
 /**
- * Merge the queued quotes into the draft while a send is being started.
+ * Merge the queued quotes into the draft, then confirm the write landed.
  *
- * The notes live outside the draft, so they are merged at the only supported
- * moment: the send gesture itself. The composer keymap submits inside the
- * editor's own Enter handler and the send button submits in the bubble phase,
- * so a capture listener on document runs first, while the composer is still
- * idle - an insertText() there commits synchronously and submit() reads the
- * refreshed projection. That is the composer's own insertion point, not a
- * monkey patch: nothing is prevented, no shell method is replaced and no
- * private member is touched.
+ * insertText() reports success as soon as the span maps to a position, not
+ * when the text is in the document (an empty replacement returns true too), so
+ * the write is verified by reading the composer back. The notes are dropped
+ * only after that check, never before it.
  *
  * @param sessionId - session whose notes are being sent.
  * @param actions - the composer's public input actions.
  * @param phase - composer machine phase; only 'plain' accepts a draft write.
- * @returns true when the quotes were merged into the draft.
+ * @returns true when the quotes are in the draft.
  */
 function injectQuotes(sessionId: string | undefined, actions: QuoteInsertActions, phase: string): boolean {
   if (phase !== 'plain') return false
@@ -249,13 +262,51 @@ function injectQuotes(sessionId: string | undefined, actions: QuoteInsertActions
   // keystroke that landed between the gesture and the write.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const span = actions.captureInsertion()
-    if (actions.insertText(payload, { start: 0, end: 0, draftRev: span.draftRev })) {
-      setEntries(sessionId, [])
-      return true
-    }
+    if (!actions.insertText(payload, { start: 0, end: 0, draftRev: span.draftRev })) continue
+    if (!draftCarries(payload)) continue
+    setEntries(sessionId, [])
+    return true
   }
-  // The write was refused, so nothing is sent with quotes: keep the card.
+  // Nothing landed, so the card stays and the send goes out unchanged.
   return false
+}
+
+/** True while a send taken over from the user's gesture is being replayed. */
+let quotingSend = false
+
+/**
+ * Run the send ourselves, with an explicit order: write the notes, then submit.
+ *
+ * The host's Enter handler already calls preventDefault() and submits inside
+ * the same keydown, so a capture-phase write races a handler that reads its
+ * own copy of the composer state; the send button submits in the bubble phase.
+ * Cancelling the gesture (the caller does that), writing the notes and
+ * clicking the primary send control one task later makes the order explicit
+ * without replacing any shell method.
+ *
+ * @param sessionId - session whose notes are being sent.
+ * @param live - composer facts captured when the gesture started.
+ * @param control - the primary send control the click is replayed on.
+ */
+function sendWithQuotes(
+  sessionId: string | undefined,
+  live: { readonly phase: string; readonly actions: QuoteInsertActions },
+  control: HTMLElement,
+): void {
+  quotingSend = true
+  try {
+    injectQuotes(sessionId, live.actions, live.phase)
+  } catch {
+    // A refused write must not swallow the message: the replay below still
+    // submits it, just without the notes.
+  }
+  window.setTimeout(() => {
+    try {
+      control.click()
+    } finally {
+      quotingSend = false
+    }
+  }, 0)
 }
 
 /** Text offset of a DOM point inside its closest element (for anchors). */
@@ -432,9 +483,10 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
   const sendRef = useRef({ draft, phase, actions: inputActions })
   sendRef.current = { draft, phase, actions: inputActions }
 
-  // Merge queued quotes into the message a send is about to carry. The two
-  // listeners are installed once per session and read the live composer facts
-  // from sendRef, so they never need re-registration.
+  // Take the send gesture over, but only while notes are queued: cancel it,
+  // write the notes through the composer's public input actions, then replay
+  // the primary send control one task later. With no notes the listeners return
+  // before touching anything, so an ordinary send never enters plugin code.
   useEffect(() => {
     if (entries.length === 0) return
     // A side chat (or any second composer) renders its own overlay; only the
@@ -446,14 +498,33 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
       return slot !== null && card !== null && slot.closest(COMPOSER_CARD) === card
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!isSubmitEnter(event) || !owns(event)) return
+      if (quotingSend || !isSubmitEnter(event) || !owns(event)) return
       const live = sendRef.current
-      injectQuotes(sessionId, live.actions, live.phase)
+      // An empty draft is not a send: Enter there would submit nothing, and the
+      // same control is the stop button while a turn is running.
+      if (live.phase !== 'plain' || live.draft.trim() === '') return
+      if (pendingPayload(sessionId) === null) return
+      const target = event.target instanceof Element ? event.target : null
+      const card = target === null ? null : target.closest(COMPOSER_CARD)
+      const control = card === null ? undefined : sendControls(card)[0]
+      // No send control to replay means nothing safe to do here: leave the
+      // gesture to the host rather than swallowing the message.
+      if (control === undefined) return
+      event.preventDefault()
+      event.stopPropagation()
+      sendWithQuotes(sessionId, live, control as HTMLElement)
     }
     const onClick = (event: MouseEvent): void => {
+      if (quotingSend) return
       const live = sendRef.current
       if (!isSubmitClick(event, live.draft) || !owns(event)) return
-      injectQuotes(sessionId, live.actions, live.phase)
+      if (live.phase !== 'plain' || pendingPayload(sessionId) === null) return
+      const target = event.target instanceof Element ? event.target : null
+      const button = target === null ? null : target.closest('button')
+      if (button === null) return
+      event.preventDefault()
+      event.stopPropagation()
+      sendWithQuotes(sessionId, live, button)
     }
     document.addEventListener('keydown', onKeyDown, true)
     document.addEventListener('click', onClick, true)

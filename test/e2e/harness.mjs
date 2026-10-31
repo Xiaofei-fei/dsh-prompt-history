@@ -493,6 +493,96 @@ export function userMessageCount(page) {
 }
 
 /**
+ * Wait for one more user bubble, then return the new count.
+ *
+ * Sending is asynchronous (the row is committed after the send gesture), so a
+ * fixed sleep would race the transcript.
+ * @param page - the app page.
+ * @param previous - the count observed before sending.
+ * @param tries - seconds to wait at most.
+ */
+export async function waitForUserMessageCount(page, previous, tries = 12) {
+  let count = previous
+  for (let i = 0; i < tries; i += 1) {
+    await sleep(1000)
+    count = await userMessageCount(page)
+    if (count > previous) break
+  }
+  return count
+}
+
+/** Read the newest user bubble together with its note pill, if the host renders one. */
+export function lastUserNoteRow(page) {
+  return page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
+    const last = rows[rows.length - 1]
+    if (last === undefined) return null
+    const pill = last.querySelector('.dsh-ph-quote-notes')
+    return {
+      text: last.innerText ?? last.textContent ?? '',
+      pill: pill === null ? null : { label: (pill.textContent ?? '').trim(), title: pill.getAttribute('title') ?? '' },
+    }
+  })
+}
+
+/**
+ * Report whether a user bubble carries the quoted line: either through the
+ * note pill (a host with the conversation slot) or as raw '> ' blockquote text
+ * (older hosts). Returns the branch so a failing check shows which rendering
+ * was expected.
+ * @param row - a {@link lastUserNoteRow} result.
+ * @param firstLine - the first line of the quoted selection.
+ */
+export function quoteCarriedByRow(row, firstLine) {
+  if (row === null) return { carried: false, rendering: 'no user row' }
+  if (row.pill !== null) {
+    return {
+      carried: /1\s*条注释|1\s*note/i.test(row.pill.label) && row.pill.title.includes(firstLine),
+      rendering: 'note pill',
+    }
+  }
+  const sent = normalizePrompt(row.text)
+  return { carried: sent.startsWith('> ') && sent.includes(firstLine), rendering: 'plain blockquote' }
+}
+
+/**
+ * Click the composer's primary send control instead of pressing Enter.
+ *
+ * The button only leaks through as a hashed class token ending in `_primary`,
+ * so candidates are matched on that suffix and ranked by the localized
+ * aria-label; a single usable candidate is accepted as the send button.
+ * @param page - the app page.
+ * @returns which button was clicked plus the candidates seen.
+ */
+export async function clickPrimarySend(page) {
+  const handles = await page.$$('button, [role="button"]')
+  const ranked = []
+  for (const handle of handles) {
+    // The composer toolbar re-renders between typing and sending, so a handle
+    // from the first query can already be detached; skip it instead of failing.
+    let info = null
+    try {
+      info = await handle.evaluate((el) => {
+        const primary = [...el.classList].some((token) => token.endsWith('_primary'))
+        if (!primary) return null
+        const label = el.getAttribute('aria-label') ?? (el.textContent ?? '').trim().slice(0, 24)
+        const disabled = el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true'
+        return { label, disabled }
+      })
+    } catch {
+      info = null
+    }
+    if (info !== null) ranked.push({ handle, ...info })
+  }
+  const usable = ranked.filter((entry) => !entry.disabled)
+  const chosen = usable.find((entry) => /发送|send/i.test(entry.label)) ?? (usable.length === 1 ? usable[0] : null)
+  const candidates = ranked.map(({ label, disabled }) => ({ label, disabled }))
+  if (chosen === null) return { clicked: false, candidates }
+  await chosen.handle.click()
+  return { clicked: true, label: chosen.label, candidates }
+}
+
+/**
  * Make sure the opened session has at least one message.
  *
  * A brand-new scratch profile starts with an empty session, and most composer
@@ -520,9 +610,15 @@ export async function ensureSessionMessage(page, text = 'e2e seed prompt 00001')
  */
 export async function launch() {
   const executablePath = resolveChrome()
+  const args = ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1700,1000']
+  // Edge 156+ relaunches itself through its "compat layer" when it notices an
+  // automation driver: the process puppeteer spawned exits with code 0 before
+  // DevTools answers, and the real browser runs detached under a pid puppeteer
+  // does not own. This flag keeps the browser in the spawned process.
+  if (/msedge/i.test(executablePath)) args.push('--edge-skip-compat-layer-relaunch')
   return puppeteer.launch({
     executablePath,
     headless: process.env.DSH_E2E_HEADFUL === '1' ? false : 'new',
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--window-size=1700,1000'],
+    args,
   })
 }

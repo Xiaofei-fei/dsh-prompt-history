@@ -11,9 +11,10 @@
  * @module dsh-prompt-history/test/e2e/quote
  */
 import {
-  clearComposer, clearQuotes, composerText, ensureSessionMessage, normalizePrompt,
-  openFirstSession, quoteFromUserRow, quoteState, sendFromComposer, sleep,
-  userMessageCount,
+  clearComposer, clearQuotes, clickPrimarySend, composerText, ensureSessionMessage,
+  lastUserNoteRow, normalizePrompt, openFirstSession, quoteCarriedByRow,
+  quoteFromUserRow, quoteState, sendFromComposer, sleep, userMessageCount,
+  waitForUserMessageCount,
 } from './harness.mjs'
 
 /** Prompt typed after quoting; distinctive so the merged message is checkable. */
@@ -21,6 +22,12 @@ const PROMPT = 'quote regression prompt 24680'
 
 /** Prompt sent with no pending notes; proves the submit path still works bare. */
 const PLAIN_PROMPT = 'plain send prompt 13579'
+
+/** Prompt sent through the composer's send button, with a note queued. */
+const BUTTON_PROMPT = 'quote button prompt 31415'
+
+/** Plain prompt sent while a note is queued; it must not be swallowed. */
+const QUEUED_PROMPT = 'queued note plain prompt 27182'
 
 /** The note card's pill, in either locale the toolbar can render. */
 const PILL = /1\s*条注|1\s*note/i
@@ -169,6 +176,95 @@ export async function quoteSuite(page, check) {
       { hostOpen: afterSend.hostOpen, rows: afterSend.rows.length })
   } catch (error) {
     for (const name of pending) check(name, false, { error: String(error).slice(0, 200) })
+  }
+
+  const pendingSends = new Set([
+    'quote: the send button merges the notes too',
+    'quote: a send with a queued note still produces exactly one message',
+  ])
+  const reportSend = (name, ok, detail) => {
+    pendingSends.delete(name)
+    check(name, ok, detail)
+  }
+  try {
+    // 6) The same merge has to happen for the composer's send button: the
+    //    capture-phase click listener folds the notes, then lets the click
+    //    reach the button. Quote the oldest message so both checks can use a
+    //    plain selection even after earlier sends added note pills.
+    await clearComposer(page)
+    await clearQuotes(page)
+    const buttonBefore = await userMessageCount(page)
+    const buttonQuote = await quoteFromUserRow(page, { fromEnd: false })
+    const buttonFirstLine = (buttonQuote.selected ?? '').split('\n')[0] ?? ''
+    const buttonQueued = await quoteState(page)
+    // A script-level focus() does not give the page keyboard focus; a real
+    // pointer click does, so the typed prompt lands in the editor.
+    await page.click('[data-composer-input]')
+    await page.keyboard.type(BUTTON_PROMPT)
+    await sleep(250)
+    const buttonTyped = (await composerText(page) ?? '').trim()
+    const buttonClick = await clickPrimarySend(page)
+    const buttonAfter = await waitForUserMessageCount(page, buttonBefore)
+    const buttonRow = await lastUserNoteRow(page)
+    const buttonCarried = quoteCarriedByRow(buttonRow, buttonFirstLine)
+    const buttonSent = normalizePrompt(buttonRow?.text ?? '')
+    const buttonSettled = await quoteState(page)
+    const buttonDraft = (await composerText(page) ?? '').trim()
+    reportSend('quote: the send button merges the notes too',
+      buttonQuote.clicked && buttonFirstLine !== '' && buttonQueued.hostOpen === '1'
+        && PILL.test(buttonQueued.pill ?? '') && buttonTyped === BUTTON_PROMPT
+        && buttonClick.clicked && buttonAfter === buttonBefore + 1
+        && buttonSent.includes(BUTTON_PROMPT) && buttonCarried.carried
+        && buttonDraft === '' && buttonSettled.hostOpen !== '1' && buttonSettled.rows.length === 0,
+      {
+        before: buttonBefore,
+        after: buttonAfter,
+        click: buttonClick,
+        draftWhileQueued: JSON.stringify(buttonQueued.draft ?? ''),
+        typed: buttonTyped,
+        rendering: buttonCarried.rendering,
+        pill: buttonRow?.pill ?? null,
+        sent: buttonSent.slice(0, 120),
+        draftAfterSend: JSON.stringify(buttonDraft),
+        noteOpen: buttonSettled.hostOpen,
+        noteRows: buttonSettled.rows.length,
+      })
+
+    // 7) The maintainer's report: with a note queued, a plain Enter send used
+    //    to be swallowed (message count unchanged). It must produce exactly
+    //    one message - not zero, and not two after the transcript settles.
+    await clearComposer(page)
+    await clearQuotes(page)
+    const queuedBefore = await userMessageCount(page)
+    const queuedQuote = await quoteFromUserRow(page, { fromEnd: false })
+    const queuedFirstLine = (queuedQuote.selected ?? '').split('\n')[0] ?? ''
+    await sendFromComposer(page, QUEUED_PROMPT)
+    const queuedAfter = await waitForUserMessageCount(page, queuedBefore)
+    await sleep(900)
+    const queuedSettled = await userMessageCount(page)
+    const queuedRow = await lastUserNoteRow(page)
+    const queuedCarried = quoteCarriedByRow(queuedRow, queuedFirstLine)
+    const queuedSent = normalizePrompt(queuedRow?.text ?? '')
+    const queuedState = await quoteState(page)
+    const queuedDraft = (await composerText(page) ?? '').trim()
+    reportSend('quote: a send with a queued note still produces exactly one message',
+      queuedQuote.clicked && queuedFirstLine !== ''
+        && queuedAfter === queuedBefore + 1 && queuedSettled === queuedBefore + 1
+        && queuedSent.includes(QUEUED_PROMPT) && queuedCarried.carried
+        && queuedDraft === '' && queuedState.hostOpen !== '1' && queuedState.rows.length === 0,
+      {
+        before: queuedBefore,
+        after: queuedAfter,
+        settled: queuedSettled,
+        rendering: queuedCarried.rendering,
+        pill: queuedRow?.pill ?? null,
+        sent: queuedSent.slice(0, 120),
+        draftAfterSend: JSON.stringify(queuedDraft),
+        noteOpen: queuedState.hostOpen,
+        noteRows: queuedState.rows.length,
+      })
+  } catch (error) {
+    for (const name of pendingSends) check(name, false, { error: String(error).slice(0, 200) })
   }
   await clearComposer(page)
   await clearQuotes(page)
