@@ -72,11 +72,16 @@ export function composerTypeStyle(element: Element | null): TypeStyle {
  * @param style - the editor's type style.
  * @param lineHeight - the line box to occupy, in px.
  */
-export function applyTypeVariables(element: HTMLElement, style: TypeStyle, lineHeight: number): void {
+export function applyTypeVariables(
+  element: HTMLElement,
+  style: TypeStyle,
+  lineHeight: number,
+  fontScale = 1,
+): void {
   element.style.setProperty('--dsh-ph-font-family', style.fontFamily)
   element.style.setProperty('--dsh-ph-font-weight', style.fontWeight)
   element.style.setProperty('--dsh-ph-font-style', style.fontStyle)
-  element.style.setProperty('--dsh-ph-font-size', `${style.fontSize}px`)
+  element.style.setProperty('--dsh-ph-font-size', `${style.fontSize * fontScale}px`)
   element.style.setProperty('--dsh-ph-letter-spacing', style.letterSpacing)
   element.style.setProperty('--dsh-ph-line-height', `${lineHeight}px`)
 }
@@ -99,6 +104,27 @@ export function editorLineHeight(element: Element): number {
   const lineHeight = Number.isFinite(raw) && raw > 0 ? raw : size * 1.5
   cachedLine = { element, lineHeight }
   return lineHeight
+}
+
+/**
+ * The CSS `zoom` actually in effect on a node, ancestors included.
+ *
+ * `getBoundingClientRect()` reports viewport pixels — already through this factor —
+ * while `style.left`, `style.width` and `font-size` are CSS pixels, applied before
+ * it. Copying one into the other without dividing by this factor is off by exactly
+ * this much: a theme that sets `zoom` on `body` (and compensates fixed overlays with
+ * `zoom: 1 / scale`) makes an overlay's text render at the wrong size.
+ * `offsetWidth` rounds to whole layout pixels but is not scaled by the *ancestors*,
+ * and `getBoundingClientRect()` is — so the ratio is the factor the ancestors apply.
+ * @param element - a rendered element; a zero-width one falls back to `fallback`.
+ * @param fallback - the factor to assume while the element has no box yet.
+ * @returns the net zoom, or `fallback` when it cannot be measured.
+ */
+export function nodeZoom(element: HTMLElement, fallback = 1): number {
+  const own = element.offsetWidth
+  if (own <= 0) return fallback
+  const zoom = element.getBoundingClientRect().width / own
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : fallback
 }
 
 const styleListeners = new Set<() => void>()

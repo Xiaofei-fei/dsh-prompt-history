@@ -11,7 +11,7 @@
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
-import { applyTypeVariables, composerTypeStyle, invalidateTypeStyle, subscribeTypeStyle } from './typeStyle.ts'
+import { applyTypeVariables, composerTypeStyle, invalidateTypeStyle, nodeZoom, subscribeTypeStyle } from './typeStyle.ts'
 import { getPrefs } from './prefs.ts'
 import { claimComposer, registerSuggestionHider } from './overlayExclusion.ts'
 import { sitBelowCover } from './occlusion.ts'
@@ -212,7 +212,11 @@ function editorBox(host: HTMLElement): { left: number; top: number; width: numbe
   const rect = host.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return null
   const style = window.getComputedStyle(host)
-  const pad = (side: string): number => Number.parseFloat(style.getPropertyValue(side)) || 0
+  // `rect` is in viewport pixels, `getPropertyValue` and `fontSize` are in CSS
+  // pixels. A theme that zooms `body` separates the two, so padding has to be
+  // brought up to viewport pixels before it is subtracted from the rect.
+  const zoom = nodeZoom(host, 1)
+  const pad = (side: string): number => (Number.parseFloat(style.getPropertyValue(side)) || 0) * zoom
   const fontSize = Number.parseFloat(style.fontSize) || 14
   const rawLine = Number.parseFloat(style.lineHeight)
   const line = Number.isFinite(rawLine) && rawLine > 0 ? rawLine : fontSize * 1.5
@@ -220,7 +224,7 @@ function editorBox(host: HTMLElement): { left: number; top: number; width: numbe
     left: rect.left + pad('padding-left'),
     top: rect.top + pad('padding-top'),
     width: Math.max(40, rect.width - pad('padding-left') - pad('padding-right')),
-    height: Math.max(line, rect.height - pad('padding-top') - pad('padding-bottom')),
+    height: Math.max(line * zoom, rect.height - pad('padding-top') - pad('padding-bottom')),
     line,
   }
 }
@@ -287,23 +291,34 @@ function paint(): boolean {
   textEl.style.webkitBoxOrient = 'vertical'
   textEl.style.overflow = 'hidden'
 
+  // The overlay may sit in a different zoom than the editor (a theme that scales
+  // `body` compensates fixed overlays with `zoom: 1 / scale`). Everything above was
+  // measured in viewport pixels, so dividing by this factor puts the CSS-pixel
+  // properties back on that box, while the type is scaled up by it — otherwise the
+  // prediction renders at 1/zoom of the draft's size.
+  const zoom = nodeZoom(el, 1)
+  // The type has to end up at the editor's visual size. `style.fontSize` and
+  // `box.line` are CSS pixels, so the editor renders them through its own zoom;
+  // the overlay renders them through its (usually smaller, compensated) one.
+  // Scaling by host / self makes the two agree whichever pair is in play.
+  const typeScale = nodeZoom(painted.host, 1) / zoom
   asSelfWrite(() => {
     el.textContent = ''
     el.append(textEl)
-    applyTypeVariables(el, style, box.line)
-    el.style.left = `${box.left}px`
-    el.style.top = `${box.top}px`
-    el.style.width = `${box.width}px`
-    el.style.lineHeight = `${box.line}px`
+    applyTypeVariables(el, style, box.line * typeScale, typeScale)
+    el.style.left = `${box.left / zoom}px`
+    el.style.top = `${box.top / zoom}px`
+    el.style.width = `${box.width / zoom}px`
+    el.style.lineHeight = `${box.line * typeScale}px`
     // The container follows its content: a clamped prediction needs more room than
     // an empty editor had, and clipping it was what made long predictions read as a
     // smear. Height is finished below, once measured.
-    el.style.height = `${box.height}px`
+    el.style.height = `${box.height / zoom}px`
   })
 
-  const textHeight = textEl.getBoundingClientRect().height
+  const textHeight = textEl.getBoundingClientRect().height / zoom
   asSelfWrite(() => {
-    const height = Math.max(box.height, textHeight)
+    const height = Math.max(box.height / zoom, textHeight)
     el.style.height = `${height}px`
   })
   paintedSignature = signature
