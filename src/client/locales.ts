@@ -50,7 +50,6 @@ const zh = {
   'copyMode.auto': '选中即自动复制',
   'paste.toggle': '右键直接粘贴：输入框上右键即粘贴剪贴板内容（终端风格，不弹菜单）',
   'history.global': '跨会话历史记忆：↑/↓ 历史在会话间保持（存于浏览器本地，上限 200 条）',
-  'toc.toggle': '会话目录（Chat TOC）：对话左侧显示可拖动的目录把手',
   'completion.toggle': '历史补全：打字时淡色补全历史里匹配的提示词，Tab 或 → 接受',
   'completion.aiToggle': 'AI 续写：历史没有匹配时，停顿后让模型顺着你已打的半句补完后半句（Tab 或 → 接受，每次停顿一次小请求）',
   'completion.hint': '提示词补全（Tab 接受）',
@@ -67,9 +66,6 @@ const zh = {
   'sideChat.askHint': '已把引用送入侧聊，输入你的问题即可',
   'pill.copied': '已复制',
   'pill.quoted': '已引用',
-  'toc.title': '会话目录',
-  'toc.aria': '会话目录（可拖动）',
-  'toc.resize': '拖动右下角调整面板大小',
   'search.noMatch': '无匹配',
 } as const
 
@@ -116,7 +112,6 @@ const en: Record<keyof typeof zh, string> = {
   'copyMode.auto': 'Auto-copy on select',
   'paste.toggle': 'Right-click pastes directly: right-click the input box to paste (terminal style, no context menu)',
   'history.global': 'Cross-session history: Up/Down history persists across sessions (browser-local, capped at 200)',
-  'toc.toggle': 'Chat TOC: show the draggable grip on the chat left edge',
   'completion.toggle': 'History completion: ghost the rest of the matching history prompt while typing; accept with Tab or →',
   'completion.aiToggle': 'AI continuation: when nothing in history matches, let the model finish the half-written message after a pause (Tab or → accepts, one small request per pause)',
   'completion.hint': 'Prompt completion (Tab accepts)',
@@ -133,9 +128,6 @@ const en: Record<keyof typeof zh, string> = {
   'sideChat.askHint': 'Quote moved into the side chat — type your question',
   'pill.copied': 'Copied',
   'pill.quoted': 'Quoted',
-  'toc.title': 'Conversation TOC',
-  'toc.aria': 'Conversation TOC (draggable)',
-  'toc.resize': 'Drag the corner to resize',
   'search.noMatch': 'no match',
 }
 

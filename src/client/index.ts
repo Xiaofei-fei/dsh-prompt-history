@@ -35,28 +35,16 @@ const SETTINGS_CSS = [
   '.dsh-ph-row input{margin-top:3px;accent-color:var(--dsw-static-blue-900);}',
   '.dsh-ph-note{margin:10px 0 0;font-size:12px;color:var(--dsw-alias-label-tertiary);}',
   '.dsh-ph-group{margin:8px 0 4px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);}',
-  '.dsh-ph-toc-grip{position:fixed;z-index:2147483000;width:20px;height:52px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-specific-menu);background:color-mix(in srgb,var(--dsw-specific-menu) 88%,#000);box-shadow:0 1px 4px rgba(0,0,0,.18);color:var(--dsw-alias-label-primary);font-size:14px;line-height:1;cursor:pointer;opacity:.65;transition:opacity .15s;display:flex;align-items:center;justify-content:center;padding:0;}',
-  '.dsh-ph-toc-grip:hover{opacity:1;background:var(--dsw-alias-bg-layer-2);}',
-  '.dsh-ph-toc{position:fixed;z-index:2147483000;width:300px;max-height:min(60vh,480px);display:flex;flex-direction:column;padding:8px;border-radius:12px;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);box-shadow:0 8px 28px rgba(0,0,0,.25);box-sizing:border-box;}',
-  '.dsh-ph-toc-title{margin:0 4px 6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);flex-shrink:0;}',
   // Header-fixed / list-scrollable: the list is a flex child with min-height:0
   // so it shrinks to the remaining panel height; each item is flex-shrink:0 so
   // entries NEVER compress when the list overflows — the excess simply scrolls
   // (overflow-y:auto), keeping every row's height, font and line-height intact.
-  '.dsh-ph-toc-list{overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;box-sizing:border-box;min-height:0;flex:1 1 auto;overscroll-behavior:contain;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);}',
   // Uniform directory rows: fixed 28px height, leading index column, and a
   // single-line ellipsis label (standard text-overflow — no line-clamp, which
   // Chromium 148 renders unreliably). Rows are therefore all exactly the same
   // compact height no matter the message length; the FULL text shows in the
   // hover tooltip, so shortening the preview loses nothing. No inter-row gap:
   // the entries stack as one tight directory (hover highlights the row).
-  '.dsh-ph-toc-item{flex-shrink:0;display:flex;align-items:center;gap:8px;width:100%;height:28px;text-align:left;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;box-sizing:border-box;}',
-  '.dsh-ph-toc-item:hover{background:var(--dsw-alias-bg-layer-2);}',
-  '.dsh-ph-toc-idx{flex:none;min-width:24px;text-align:right;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;line-height:1;}',
-  '.dsh-ph-toc-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4;}',
-  '.dsh-ph-toc-tip{position:fixed;z-index:2147483001;max-width:min(420px,calc(100vw - 24px));max-height:min(40vh,300px);overflow-y:auto;padding:8px 10px;border-radius:8px;background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);box-shadow:0 6px 20px rgba(0,0,0,.22);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;box-sizing:border-box;}',
-  '.dsh-ph-toc-resize{position:absolute;right:3px;bottom:3px;width:14px;height:14px;cursor:se-resize;border-radius:3px;opacity:.55;background:linear-gradient(135deg,transparent 0 50%,var(--dsw-alias-label-tertiary) 50% 58%,transparent 58%),linear-gradient(135deg,transparent 0 66%,var(--dsw-alias-label-tertiary) 66% 74%,transparent 74%);}',
-  '.dsh-ph-toc-resize:hover{opacity:1;}',
   '.dsh-ph-button{border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:4px 12px;font-size:12px;line-height:1.4;cursor:pointer;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
   '.dsh-ph-button:hover{background:var(--dsw-alias-bg-layer-3);}',
   '.dsh-ph-sidechat{display:flex;flex-direction:column;height:100%;min-height:0;gap:8px;padding:10px;}',
@@ -107,13 +95,13 @@ export function apply(ctx: ClientContext): void {
   style.textContent = SETTINGS_CSS
   document.head.appendChild(style)
 
-  // Dictionaries + the vanilla-DOM translator (toolbar/pills/overlay/TOC).
+  // Dictionaries + the vanilla-DOM translator (toolbar/pills/overlay).
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompt-history: dictionaries')
   setTranslator(ctx.locale.bind(NS))
 
-  // Keep the root context so the full-history TOC can widen the loaded window
-  // with loadOlder() from component code (no ctx there); the sessions service
-  // is resolved lazily per call — it appears only after the host connection.
+  // Keep the root context so component code (which has no ctx) can reach the
+  // sessions service; it is resolved lazily per call because it appears only
+  // after the host connection.
   bindRootContext(ctx)
   // Style first: the suggestion overlay hides the composer's own placeholder.
   installSuggestStyle()

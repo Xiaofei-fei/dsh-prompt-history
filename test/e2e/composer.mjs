@@ -1,6 +1,6 @@
 /**
  * Composer regressions: history browsing, completion, reverse search, the
- * selection toolbar, the quote-under-focus-mismatch bug, and the chat TOC.
+ * selection toolbar, and the quote-under-focus-mismatch bug.
  *
  * @module dsh-prompt-history/test/e2e/composer
  */
@@ -34,39 +34,35 @@ export async function composerSuite(page, check) {
     (restored ?? '').trim() === '',
     { restored: JSON.stringify((restored ?? '').slice(0, 20)) })
 
-  // 3) Prefix search: typing a prefix then ↑ jumps to a matching entry. The
-  //    prefix must leave room to complete, and the newest message can be short
-  //    enough to be a prefix of itself — pick a longer prompt from the session.
-  const longPrompt = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
-      .map((row) => (row.textContent ?? '').trim())
-      // Quoted prompts start with '>' and menu-ish ones with '@' or '/': completion
-      // and prefix search are not offered there, so the prefix must come from a
-      // plain prompt.
-      .filter((text) => text.length > 16 && !/^[>@/]/.test(text))
-    return rows[rows.length - 1] ?? null
-  })
-  const prefix = (longPrompt ?? lastPrompt ?? '').trim().slice(0, 4)
+  // 3) Completion ghost offers the suffix and Tab accepts it. The seed prompt is
+  //    sent here on purpose: deriving the prefix from whatever prompts the session
+  //    happens to contain made this check depend on the user's own conversation.
+  //    The ghost is checked BEFORE the ↑ prefix search because a browse session
+  //    suppresses it until the draft changes again.
+  const SEED = '补全回归校验用的一条固定长度历史提示词'
+  const prefix = SEED.slice(0, 6)
+  await clearComposer(page)
+  await page.keyboard.type(SEED)
+  await page.keyboard.press('Enter')
+  for (let i = 0; i < 12; i += 1) {
+    await sleep(600)
+    const landed = await page.evaluate((text) => [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
+      .some((row) => (row.textContent ?? '').includes(text)), SEED)
+    if (landed) break
+  }
+  // The history ring folds the new prompt on the next session event.
+  await sleep(3000)
   await clearComposer(page)
   await page.keyboard.type(prefix)
-  await sleep(300)
-  await page.keyboard.press('ArrowUp')
-  await sleep(500)
-  const searched = (await composerText(page) ?? '').trim()
-  // Prefix search guarantees "an entry starting with the prefix"; when the only
-  // match is the typed line itself, the draft simply stays put.
-  check('history prefix search jumps to a matching prompt',
-    prefix.length >= 2 && searched.startsWith(prefix),
-    { prefix, searched: searched.slice(0, 30) })
-
-  // 4) Completion ghost offers the suffix and Tab accepts it.
-  await clearComposer(page)
-  await page.keyboard.type(prefix)
-  await sleep(500)
-  const ghost = await page.evaluate(() => {
-    const node = document.querySelector('.dsh-ph-ghost')
-    return node === null ? null : (node.textContent ?? '')
-  })
+  let ghost = null
+  for (let i = 0; i < 12; i += 1) {
+    await sleep(300)
+    ghost = await page.evaluate(() => {
+      const node = document.querySelector('.dsh-ph-ghost')
+      return node === null ? null : (node.textContent ?? '')
+    })
+    if (ghost !== null && ghost !== '') break
+  }
   await page.keyboard.press('Tab')
   await sleep(500)
   const completed = (await composerText(page) ?? '').trim()
@@ -81,7 +77,20 @@ export async function composerSuite(page, check) {
     && completedNorm.slice(prefix.length) === ghostNorm
   check('history completion ghosts the suffix and Tab accepts it',
     ghostIsSuffix,
-    { prefix, ghost: ghostNorm.slice(0, 26), completed: completedNorm.slice(0, 40), newestRow: normalizePrompt(lastPrompt).slice(0, 40) })
+    { prefix, expectedSuffix: SEED.slice(prefix.length), ghost: ghostNorm.slice(0, 26), completed: completedNorm.slice(0, 40) })
+
+  // 4) Prefix search: typing a prefix then ↑ jumps to a matching entry.
+  await clearComposer(page)
+  await page.keyboard.type(prefix)
+  await sleep(300)
+  await page.keyboard.press('ArrowUp')
+  await sleep(500)
+  const searched = (await composerText(page) ?? '').trim()
+  // Prefix search guarantees "an entry starting with the prefix"; when the only
+  // match is the typed line itself, the draft simply stays put.
+  check('history prefix search jumps to a matching prompt',
+    prefix.length >= 2 && searched.startsWith(prefix),
+    { prefix, searched: searched.slice(0, 30) })
 
   // 5) Ctrl+R opens the reverse search.
   await clearComposer(page)
@@ -119,9 +128,17 @@ export async function composerSuite(page, check) {
     selection?.addRange(range)
     document.dispatchEvent(new Event('selectionchange'))
   })
-  await sleep(900)
-  const buttons = await page.evaluate(() => [...document.querySelectorAll('.dsh-ph-toolbar button')]
-    .map((b) => (b.textContent ?? '').trim()))
+  // The toolbar appears on the next frame after the selection settles; a streaming
+  // assistant turn can re-render the transcript in between, so poll and re-dispatch.
+  let buttons = []
+  for (let i = 0; i < 10; i += 1) {
+    await sleep(300)
+    buttons = await page.evaluate(() => {
+      document.dispatchEvent(new Event('selectionchange'))
+      return [...document.querySelectorAll('.dsh-ph-toolbar button')].map((b) => (b.textContent ?? '').trim())
+    })
+    if (buttons.length > 0) break
+  }
   await page.evaluate(() => {
     const quote = [...document.querySelectorAll('.dsh-ph-toolbar button')]
       .find((b) => /引用|Quote/.test(b.textContent ?? ''))
@@ -134,20 +151,4 @@ export async function composerSuite(page, check) {
     { buttons, quoted: quoted.slice(0, 30) })
   await clearComposer(page)
 
-  // 7) The chat TOC opens with entries.
-  const grip = await page.evaluate(() => document.querySelector('.dsh-ph-toc-grip') !== null)
-  if (grip) {
-    await page.evaluate(() => {
-      const handle = document.querySelector('.dsh-ph-toc-grip')
-      if (handle !== null) handle.click()
-    })
-    await sleep(1200)
-  }
-  const toc = await page.evaluate(() => ({
-    panel: document.querySelector('.dsh-ph-toc') !== null,
-    entries: document.querySelectorAll('.dsh-ph-toc-item').length,
-  }))
-  await page.keyboard.press('Escape')
-  await sleep(400)
-  check('chat TOC opens with entries', grip && toc.panel && toc.entries > 0, { grip, toc })
 }

@@ -41,7 +41,6 @@ import type { InputState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the ui-session merge (useSession/sessionId) on DSH >= 0.2 layouts.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { getPrefs, subscribePrefs } from './prefs.ts'
-import { pullOlderPage } from './sessionCtx.ts'
 import { promptMessage, type PromptMessage } from './nodes.ts'
 import {
   COMPOSER_CARD, editorFocused, editorHost, editorSelectedText, editorSelectionOffsets,
@@ -55,7 +54,6 @@ import { useCompletion } from './useCompletion.ts'
 import { RESET_BROWSE, type BrowseState, type SearchState } from './browse.ts'
 import { registerMainInserter } from './bridge.ts'
 import { useSuggestion } from './useSuggestion.ts'
-import { ChatToc } from './ChatToc.tsx'
 
 /** Full props of the input-history entry: framework standard kit + owner share. */
 export type InputHistoryProps = PropsRuntime<'conversation.input.right'>
@@ -118,36 +116,7 @@ export function InputHistory(props: InputHistoryProps) {
     () => rawNodes.map(promptMessage).filter((m): m is PromptMessage => m !== null),
     [rawNodes],
   )
-  // Directory texts: consecutive duplicates collapsed, in conversation order.
-  const tocTexts = useMemo(() => {
-    const out: string[] = []
-    for (const message of messages) {
-      if (message.text !== null && out[out.length - 1] !== message.text) out.push(message.text)
-    }
-    return out
-  }, [messages])
   const removed = sessionHook?.((s) => s.removed) as boolean | undefined ?? false
-
-  // Full-history TOC: when the directory opens it asks us to widen the loaded
-  // window backwards (loadOlder page by page) until hasMore is false, so every
-  // earlier user message shows up in the directory, not just the initial window.
-  const hasMore = sessionHook?.((s) => s.hasMore) as boolean | undefined ?? false
-  const loadingOlder = sessionHook?.((s) => s.loadingOlder) as boolean | undefined ?? false
-  const openState = sessionHook?.((s) => s.openState) as string | undefined ?? ''
-  const [widen, setWiden] = useState(false)
-  const widenBusyRef = useRef(false)
-  const widenPagesRef = useRef(0)
-  const requestWiden = useCallback((): void => { setWiden(true) }, [])
-  useEffect(() => {
-    if (!widen) return
-    if (removed || openState !== 'open') { setWiden(false); return }
-    if (!hasMore) { setWiden(false); return }
-    if (loadingOlder || widenBusyRef.current) return
-    if (widenPagesRef.current >= 60) { setWiden(false); return } // safety cap
-    widenBusyRef.current = true
-    widenPagesRef.current += 1
-    void pullOlderPage(sessionId).finally(() => { widenBusyRef.current = false })
-  }, [widen, hasMore, loadingOlder, openState, sessionId, removed])
 
   /** Submitted prompt texts, oldest → newest (per session; append-only). */
   const historyRef = useRef<string[]>([])
@@ -156,7 +125,7 @@ export function InputHistory(props: InputHistoryProps) {
   const browseRef = useRef<BrowseState>(RESET_BROWSE)
   const searchRef = useRef<SearchState | null>(null)
   const liveRef = useRef({ draft, phase, removed, inputActions })
-  /** Settings snapshot: the TOC render and the leaf flags follow it. */
+  /** Settings snapshot: the leaf flags follow it. */
   const prefs = useSyncExternalStore(subscribePrefs, getPrefs)
 
   // Prediction lifecycle (cache, dismissal, debounce, pending line, accept).
@@ -205,7 +174,5 @@ export function InputHistory(props: InputHistoryProps) {
   // reverse search → hint accept → arrows), installed once.
   useComposerKeys({ liveRef, historyRef, suggestion, completion, browsing })
 
-  return prefs.tocVisible
-    ? <ChatToc texts={tocTexts} onWiden={requestWiden} />
-    : null
+  return null
 }

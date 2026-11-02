@@ -22,8 +22,6 @@ export interface PluginPrefs {
   rightClickPaste: boolean
   /** Keep one global prompt-history ring across sessions (localStorage). */
   globalHistory: boolean
-  /** Show the draggable Chat TOC grip on the chat's left edge. */
-  tocVisible: boolean
   /**
    * Codex-style prompt completion: while the draft is a prefix of an earlier
    * prompt, ghost the rest after the caret and accept it with Tab / →.
@@ -64,7 +62,6 @@ const DEFAULTS: PluginPrefs = {
   copyMode: 'toolbar',
   rightClickPaste: true,
   globalHistory: false,
-  tocVisible: true,
   promptCompletion: true,
   aiCompletion: true,
   contextSuggest: true,
@@ -117,7 +114,6 @@ function migrate(parsed: unknown): PluginPrefs {
     copyMode,
     rightClickPaste: bool(source.rightClickPaste, DEFAULTS.rightClickPaste),
     globalHistory: bool(source.globalHistory, DEFAULTS.globalHistory),
-    tocVisible: bool(source.tocVisible, DEFAULTS.tocVisible),
     promptCompletion: bool(source.promptCompletion, DEFAULTS.promptCompletion),
     aiCompletion: bool(source.aiCompletion, DEFAULTS.aiCompletion),
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
