@@ -5,7 +5,7 @@
  * @module dsh-prompt-history/test/e2e/composer
  */
 import {
-  clearComposer, composerText, focusComposer, normalizePrompt, openFirstSession, sleep,
+  clearComposer, composerText, focusComposer, normalizePrompt, openScratchSession, sleep,
 } from './harness.mjs'
 
 /**
@@ -14,8 +14,24 @@ import {
  * @param check - the runner's assertion collector.
  */
 export async function composerSuite(page, check) {
-  const lastPrompt = await openFirstSession(page)
+  await openScratchSession(page)
   await focusComposer(page)
+  await clearComposer(page)
+
+  // A seed prompt of our own: the scratch session starts empty, and deriving the
+  // expected text from whatever the session happens to contain made these checks
+  // depend on the user's own conversation (and fail on an empty session).
+  const SEED = '历史召回校验用的一条固定提示词'
+  await page.keyboard.type(SEED)
+  await page.keyboard.press('Enter')
+  const seededBy = Date.now() + 40_000
+  while (Date.now() < seededBy) {
+    await sleep(600)
+    const landed = await page.evaluate((text) => [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
+      .some((row) => (row.textContent ?? '').includes(text)), SEED)
+    if (landed) break
+  }
+  await sleep(1200)
   await clearComposer(page)
 
   // 1) ↑ recalls the newest prompt.
@@ -23,8 +39,8 @@ export async function composerSuite(page, check) {
   await sleep(500)
   const recalled = await composerText(page)
   check('history recalls the newest prompt with ↑',
-    lastPrompt !== null && normalizePrompt(recalled) === normalizePrompt(lastPrompt),
-    { expected: normalizePrompt(lastPrompt).slice(0, 30), recalled: normalizePrompt(recalled).slice(0, 30) })
+    normalizePrompt(recalled) === normalizePrompt(SEED),
+    { expected: SEED, recalled: normalizePrompt(recalled).slice(0, 40) })
 
   // 2) ↓ returns to the pending line (empty here).
   await page.keyboard.press('ArrowDown')
@@ -34,29 +50,15 @@ export async function composerSuite(page, check) {
     (restored ?? '').trim() === '',
     { restored: JSON.stringify((restored ?? '').slice(0, 20)) })
 
-  // 3) Completion ghost offers the suffix and Tab accepts it. The seed prompt is
-  //    sent here on purpose: deriving the prefix from whatever prompts the session
-  //    happens to contain made this check depend on the user's own conversation.
-  //    The ghost is checked BEFORE the ↑ prefix search because a browse session
-  //    suppresses it until the draft changes again.
-  const SEED = '补全回归校验用的一条固定长度历史提示词'
+  // 3) Completion ghost offers the suffix and Tab accepts it. The draft is the
+  //    prefix of SEED, which step 1 just recalled from the history ring — no second
+  //    send and no reliance on the ring catching up, so this cannot race.
   const prefix = SEED.slice(0, 6)
-  await clearComposer(page)
-  await page.keyboard.type(SEED)
-  await page.keyboard.press('Enter')
-  for (let i = 0; i < 12; i += 1) {
-    await sleep(600)
-    const landed = await page.evaluate((text) => [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
-      .some((row) => (row.textContent ?? '').includes(text)), SEED)
-    if (landed) break
-  }
-  // The history ring folds the new prompt on the next session event.
-  await sleep(3000)
   await clearComposer(page)
   await page.keyboard.type(prefix)
   let ghost = null
-  for (let i = 0; i < 12; i += 1) {
-    await sleep(300)
+  for (let i = 0; i < 16; i += 1) {
+    await sleep(400)
     ghost = await page.evaluate(() => {
       const node = document.querySelector('.dsh-ph-ghost')
       return node === null ? null : (node.textContent ?? '')
@@ -66,9 +68,6 @@ export async function composerSuite(page, check) {
   await page.keyboard.press('Tab')
   await sleep(500)
   const completed = (await composerText(page) ?? '').trim()
-  // The rule is "the ghost is the suffix of a matching history entry", not "the
-  // newest DOM row equals the newest history entry" — the matched entry can be an
-  // older prompt (the DOM row may also carry a trailing clock stamp).
   const ghostNorm = normalizePrompt(ghost)
   const completedNorm = normalizePrompt(completed)
   const ghostIsSuffix = ghostNorm !== ''
@@ -77,7 +76,7 @@ export async function composerSuite(page, check) {
     && completedNorm.slice(prefix.length) === ghostNorm
   check('history completion ghosts the suffix and Tab accepts it',
     ghostIsSuffix,
-    { prefix, expectedSuffix: SEED.slice(prefix.length), ghost: ghostNorm.slice(0, 26), completed: completedNorm.slice(0, 40) })
+    { prefix, expectedSuffix: SEED.slice(prefix.length), ghost: ghostNorm.slice(0, 26), completed: completedNorm.slice(0, 40), seeded: SEED })
 
   // 4) Prefix search: typing a prefix then ↑ jumps to a matching entry.
   await clearComposer(page)

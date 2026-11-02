@@ -29,6 +29,12 @@ export interface PluginPrefs {
   promptCompletion: boolean
   /**
   /**
+   * Prompt enhancement: the composer shows a ✨ button that rewrites the draft
+   * into a structured prompt through the session model. Never applies by itself —
+   * the rewrite lands in a compare panel with an explicit apply and an undo.
+   */
+  promptEnhance: boolean
+  /**
    * Model continuation for the composer: when no history prompt matches the
    * draft, ask the session model to finish the half-written message from the
    * recent conversation and ghost the missing tail after the caret.
@@ -64,6 +70,7 @@ const DEFAULTS: PluginPrefs = {
   globalHistory: false,
   promptCompletion: true,
   aiCompletion: true,
+  promptEnhance: true,
   contextSuggest: true,
   sideChat: true,
   writeGuard: true,
@@ -116,6 +123,7 @@ function migrate(parsed: unknown): PluginPrefs {
     globalHistory: bool(source.globalHistory, DEFAULTS.globalHistory),
     promptCompletion: bool(source.promptCompletion, DEFAULTS.promptCompletion),
     aiCompletion: bool(source.aiCompletion, DEFAULTS.aiCompletion),
+    promptEnhance: bool(source.promptEnhance, DEFAULTS.promptEnhance),
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
     sideChat: storedVersion >= 3 ? bool(source.sideChat, sideChatDefault) : true,
     writeGuard: bool(source.writeGuard, DEFAULTS.writeGuard),

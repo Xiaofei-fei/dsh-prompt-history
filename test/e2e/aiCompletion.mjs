@@ -9,7 +9,7 @@
  * @module dsh-prompt-history/test/e2e/aiCompletion
  */
 import {
-  BASE_PREFS, composerText, openApp, openFirstSession, sleep,
+  BASE_PREFS, composerText, openApp, openScratchSession, sleep,
 } from './harness.mjs'
 
 /** How long a model answer may take before the check gives up. */
@@ -27,7 +27,7 @@ export async function aiCompletionSuite(browser, check) {
   const prefs = { version: 3, data: { ...BASE_PREFS.data, aiCompletion: true, contextSuggest: false } }
   const { page, errors } = await openApp(browser, prefs)
   try {
-    await openFirstSession(page)
+    await openScratchSession(page)
     await page.evaluate(() => { const el = document.querySelector('[data-composer-input]'); if (el) el.focus() })
     await sleep(400)
     await page.keyboard.type(DRAFT)

@@ -8,7 +8,7 @@
  * @module dsh-prompt-history/test/e2e/overlay
  */
 import {
-  clearComposer, composerText, focusComposer, hostIdentity, normalizePrompt, openFirstSession,
+  clearComposer, composerText, focusComposer, hostIdentity, normalizePrompt, openScratchSession,
   overlayGeometry, seamHideSuggestion, seamShowSuggestion, sleep,
 } from './harness.mjs'
 
@@ -22,7 +22,7 @@ const TOLERANCE = 2
 export async function overlaySuite(page, check) {
   // The composer renders before the session finishes opening; keys typed into a
   // composer whose session is still loading are swallowed, so open one first.
-  await openFirstSession(page)
+  await openScratchSession(page)
   await focusComposer(page)
   await clearComposer(page)
 

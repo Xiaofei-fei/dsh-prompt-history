@@ -50,6 +50,7 @@ import { useClipboard } from './useClipboard.ts'
 import { useHistory } from './useHistory.ts'
 import { useBrowse } from './useBrowse.ts'
 import { useComposerKeys } from './useComposerKeys.ts'
+import { EnhanceAction } from './EnhanceAction.tsx'
 import { useCompletion } from './useCompletion.ts'
 import { RESET_BROWSE, type BrowseState, type SearchState } from './browse.ts'
 import { registerMainInserter } from './bridge.ts'
@@ -174,5 +175,14 @@ export function InputHistory(props: InputHistoryProps) {
   // reverse search → hint accept → arrows), installed once.
   useComposerKeys({ liveRef, historyRef, suggestion, completion, browsing })
 
-  return null
+  // The ✨ enhancement button lives in the same input slot as the composer entry;
+  // it renders null while the feature is off, so nothing else changes.
+  return (
+    <EnhanceAction
+      draft={draft}
+      phase={phase}
+      actions={inputActions}
+      sessionId={sessionId?.toString()}
+    />
+  )
 }

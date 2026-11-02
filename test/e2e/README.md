@@ -43,3 +43,12 @@ occlusion checks slow and flaky. So the plugin exposes its overlay controls on
 `window.__dshPhTest` **only when** `localStorage['dsh-prompt-history.testSeam'] === '1'`
 — the harness sets that key on every page it opens. Nothing is exposed for a
 normal user, and the seam has no effect on product behaviour.
+
+## Known flaky checks
+
+`side chat / side-chat panel opens and starts a forked thread` passes when the
+suite runs alone (4/4) but can fail inside a full run: the fork needs the host to
+create a session, and in a long run the scratch profile is busy enough that the
+call is refused. The panel itself, its composer and the off-state regression all
+still pass. Tracked as a harness-isolation issue (the harness spawns the real
+`~/.dsh` profile, so sessions and forks accumulate across runs).

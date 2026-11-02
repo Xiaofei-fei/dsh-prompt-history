@@ -10,6 +10,8 @@ import { launch, openApp, startServer } from './harness.mjs'
 import { composerSuite } from './composer.mjs'
 import { predictionBoxSuite } from './predictionBox.mjs'
 import { aiCompletionSuite } from './aiCompletion.mjs'
+import { enhanceSuite } from './enhance.mjs'
+import { enhanceModelSuite } from './enhanceModel.mjs'
 import { overlaySuite } from './overlay.mjs'
 import { sideChatSuite } from './sidechat.mjs'
 
@@ -46,12 +48,22 @@ try {
   const { page, errors } = await openApp(browser)
   await suite('overlay', () => overlaySuite(page, check))
   await suite('composer', () => composerSuite(page, check))
-  await suite('side chat', () => sideChatSuite(page, check, browser))
-  await suite('prediction box', () => predictionBoxSuite(page, check))
+  // Its own page: this suite opens a side-chat pane, which takes the composer seat
+  // away from the shared page and breaks the suites that follow it.
+  await suite('side chat', async () => {
+    const { page: own } = await openApp(browser)
+    try { await sideChatSuite(own, check, browser) } finally { await own.close() }
+  })
+  await suite('prediction box', async () => {
+    const { page: own } = await openApp(browser)
+    try { await predictionBoxSuite(own, check) } finally { await own.close() }
+  })
+  await suite('prompt enhancement', () => enhanceSuite(browser, check))
   // The model-continuation path is opt-in: its answer comes from a model, so it
   // cannot be part of a deterministic run. DSH_E2E_AI=1 turns it on.
   if (process.env.DSH_E2E_AI === '1') {
     await suite('ai continuation', () => aiCompletionSuite(browser, check))
+    await suite('prompt enhancement (model)', () => enhanceModelSuite(browser, check))
   } else {
     console.log('\nai continuation\n  SKIP  set DSH_E2E_AI=1 to run the model-backed checks')
   }

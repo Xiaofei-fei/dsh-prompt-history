@@ -13,7 +13,7 @@
  *
  * @module dsh-prompt-history/test/e2e/predictionBox
  */
-import { composerText, openApp, openFirstSession, seamHideSuggestion, seamShowSuggestion, sleep } from './harness.mjs'
+import { composerText, openApp, openScratchSession, seamHideSuggestion, seamShowSuggestion, seedComposerMessage, sleep, waitForIdle } from './harness.mjs'
 
 /** Long enough to wrap at any composer width. */
 const LONG = '这是一段用于校验单行截断与缩放字号一致性的很长的预测文本，'.repeat(5)
@@ -30,11 +30,25 @@ const NODE_ZOOM = `(el) => {
  * @param check - the runner's assertion collector.
  */
 export async function predictionBoxSuite(page, check) {
-  await openFirstSession(page)
+  await openScratchSession(page)
+  // A side-chat pane left open by an earlier suite owns the composer seat, and a
+  // fixed overlay then has no editor box to hang from.
+  await page.evaluate(() => {
+    const close = [...document.querySelectorAll('.dsh-ph-iconButton')]
+      .find((b) => (b.getAttribute('title') ?? '').includes('关闭此标签页'))
+    if (close !== undefined) close.click()
+  })
+  await sleep(1200)
   await page.evaluate(() => { const el = document.querySelector('[data-composer-input]'); if (el) el.focus() })
   await sleep(400)
-  await seamShowSuggestion(page, LONG)
-  await sleep(600)
+  // The seam only paints once the editor is measurable; retry briefly instead of
+  // assuming one frame.
+  for (let i = 0; i < 10; i += 1) {
+    await seamShowSuggestion(page, LONG)
+    await sleep(400)
+    const painted = await page.evaluate(() => document.querySelector('.dsh-ph-suggest') !== null)
+    if (painted) break
+  }
 
   const atOne = await page.evaluate((zoomSource) => {
     const nodeZoom = eval(zoomSource)

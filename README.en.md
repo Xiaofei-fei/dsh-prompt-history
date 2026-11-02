@@ -47,6 +47,12 @@
    Accept either with **Tab or →** (Escape ignores it). Matching is case-insensitive, `/` or `@` drafts are left to the host's own command/reference menus, and one draft is asked at most once (the answer, including "nothing fits", is cached per draft).
 8. **Context suggestion (Codex-style, Settings toggle, default on)** — with an empty composer the plugin hands the recent conversation to the **current session model**, predicts the prompt you are about to write, and shows it as a dim full sentence inside the input with a "Press Tab to accept" hint; **Tab** fills it in (typing, Escape or a new turn dismisses it). It runs once per finished turn plus once when the empty composer gains focus, and caches per context so the same context never calls twice. The context it reads is the last 12 conversation turns: tool-call and plan rows are skipped, long answers keep **both** their opening and their conclusion (the tail is usually the part that decides what to ask next), and repaint-only timestamps are stripped.
 
+9. **Prompt enhancement (Settings toggle, default on)** — the **✨** button in the composer action row rewrites the current draft into a **structured prompt** (role and goal, context and constraints, executable steps, output format, acceptance criteria, edge cases) with the **current session model**:
+   - **Never applied or sent automatically**: the rewrite opens an original/enhanced compare panel, and only **Apply** writes it back — with a one-click **Undo** above the composer that retires as soon as you keep typing.
+   - **Never fabricates**: anything the draft does not say becomes a `（待补充：…）` placeholder rather than an invented requirement; the input language is preserved and the length stays within 1–3×.
+   - The button greys out on an empty draft, on drafts over 12,000 characters and while a message is sending. A failure only shows a message and leaves the draft untouched, with a retry in place. `Esc` closes the panel; the panel also offers **Copy** and **Cancel**.
+   - Every string follows the DSH language (zh/en).
+
 Pure UI behavior: no session events, no agent-loop changes. History recall, quoting and copying are entirely browser-local and request-free; the features that call a model are **context suggestion** and **AI continuation**, which you control in Settings (both on by default). While enabled they send at most one tiny request (~512 token budget) per turn and per typing pause to the **current session model**; turn them off and the plugin is fully offline again. Recalled, quoted and predicted text only ever enters the composer draft — it reaches the model only if *you* press Enter.
 
 ## Quick start
@@ -74,6 +80,7 @@ Open **Settings → `>_ Terminal Input`** (stored in browser localStorage, effec
 | Cross-session history | Off | Up/Down history persists across sessions in browser localStorage (cap 200) |
 | Context suggestion (Tab accepts) | On | With an empty composer, predicts your next prompt using the current session model; Tab accepts (once per turn, small quota use) |
 | Prompt completion (Tab accepts) | On | Ghosts the matching history prompt while you type; Tab or → accepts, Escape ignores |
+| Prompt enhancement (✨) | On | The ✨ rewrites the draft into a structured prompt; compare, apply, undo (one small request per run) |
 | AI continuation (Tab accepts) | On | When no history prompt matches, the model finishes the half-written message after a pause; Tab or → accepts (one small request per typing pause) |
 | Right-click paste | On | Off restores the browser's native context menu |
 

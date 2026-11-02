@@ -15,6 +15,7 @@ interface RemoteFace {
   $mount?: (contribution: unknown) => Promise<unknown>
   promptSuggest?: {
     suggest?: (request: SuggestRequest, signal?: AbortSignal) => Promise<unknown>
+    enhance?: (request: EnhanceRequest) => Promise<unknown>
   }
 }
 
@@ -28,6 +29,22 @@ export interface SuggestRequest {
   readonly provider?: string
   /** Provider-owned model id override; the host default is used when absent. */
   readonly model?: string
+}
+
+/** One prompt-enhancement request (mirrors the host contract). */
+export interface EnhanceRequest {
+  /** The composer draft to rewrite. */
+  readonly draft: string
+  /** Provider route override; the host default is used when absent. */
+  readonly provider?: string
+  /** Provider-owned model id override; the host default is used when absent. */
+  readonly model?: string
+}
+
+/** One prompt-enhancement result (mirrors the host contract). */
+export interface EnhanceResult {
+  /** The rewritten prompt, or '' when unavailable. */
+  readonly text: string
 }
 
 /** One prediction result (mirrors the host contract). */
@@ -81,6 +98,22 @@ const CONTRIBUTION = {
       ],
       result: strictCodec('dsh-prompt-history#promptSuggest/suggest:result'),
     },
+    {
+      id: 'dsh-prompt-history#promptSuggest/enhance',
+      service: 'promptSuggest',
+      namespace: 'promptSuggest',
+      method: 'enhance',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: strictCodec('dsh-prompt-history#promptSuggest/enhance:request'),
+        },
+      ],
+      result: strictCodec('dsh-prompt-history#promptSuggest/enhance:result'),
+    },
   ],
 } as const
 
@@ -104,6 +137,12 @@ export interface SuggestBridge {
    * @returns the predicted single line (or continuation suffix), '' when unavailable.
    */
   fetch(context: string, options?: SuggestOptions): Promise<string>
+  /**
+   * Rewrite a draft into a structured prompt.
+   * @param draft - the composer draft.
+   * @returns the rewritten prompt, or '' when the rewrite failed/unavailable.
+   */
+  enhance(draft: string): Promise<string>
 }
 
 /**
@@ -141,8 +180,26 @@ export function createBridge(ctx: unknown): SuggestBridge | null {
     ? getService.call(ctx, 'remote.promptSuggest') as RemoteFace['promptSuggest']
     : undefined
   const call = api?.suggest
+  const enhanceCall = api?.enhance
   if (typeof call !== 'function' || api === undefined) return null
   return {
+    async enhance(draft: string): Promise<string> {
+      if (typeof enhanceCall !== 'function' || draft.trim() === '') return ''
+      try {
+        const raw = await enhanceCall.call(api, { draft }) as
+          | EnhanceResult
+          | { readonly ok: true; readonly value: EnhanceResult }
+          | { readonly ok: false }
+          | undefined
+        const value = raw !== undefined && typeof raw === 'object' && 'ok' in raw
+          ? (raw.ok ? raw.value : undefined)
+          : raw
+        return typeof value?.text === 'string' ? value.text.trim() : ''
+      } catch (error) {
+        console.warn('[dsh-prompt-history] prompt-enhance unavailable:', error)
+        return ''
+      }
+    },
     async fetch(context: string, options: SuggestOptions = {}): Promise<string> {
       try {
         // The carrier validates the argument count against the descriptor, so
