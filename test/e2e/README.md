@@ -30,6 +30,7 @@ come back unnoticed.
 | `DSH_E2E_DSH_BIN` | `dsh` | the DSH CLI to spawn |
 | `DSH_E2E_SECRET` | read from `~/.dsh/.credentials.yaml` | browser-session secret (the cookie signer) |
 | `DSH_E2E_HEADFUL` | — | `1` to watch the run |
+| `DSH_E2E_AI` | — | `1` to run the model-backed AI-continuation suite |
 
 The suite needs the same machine as a working DSH profile: it signs the
 `dsh-auth-*` cookie with the profile's own browser-session secret (read from the

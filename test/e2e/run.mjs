@@ -9,6 +9,7 @@
 import { launch, openApp, startServer } from './harness.mjs'
 import { composerSuite } from './composer.mjs'
 import { hintLayoutSuite } from './hintLayout.mjs'
+import { aiCompletionSuite } from './aiCompletion.mjs'
 import { overlaySuite } from './overlay.mjs'
 import { sideChatSuite } from './sidechat.mjs'
 
@@ -47,6 +48,13 @@ try {
   await suite('composer', () => composerSuite(page, check))
   await suite('side chat', () => sideChatSuite(page, check, browser))
   await suite('hint layout', () => hintLayoutSuite(browser, check))
+  // The model-continuation path is opt-in: its answer comes from a model, so it
+  // cannot be part of a deterministic run. DSH_E2E_AI=1 turns it on.
+  if (process.env.DSH_E2E_AI === '1') {
+    await suite('ai continuation', () => aiCompletionSuite(browser, check))
+  } else {
+    console.log('\nai continuation\n  SKIP  set DSH_E2E_AI=1 to run the model-backed checks')
+  }
   check('no console errors during the run', errors.length === 0, { errors: errors.slice(0, 3) })
 } catch (error) {
   console.error(`\nharness error: ${String(error).slice(0, 400)}`)
