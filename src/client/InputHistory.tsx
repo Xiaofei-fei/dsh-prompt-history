@@ -162,7 +162,7 @@ export function InputHistory(props: InputHistoryProps) {
   // Prediction lifecycle (cache, dismissal, debounce, pending line, accept).
   const suggestion = useSuggestion({ sessionId, liveRef, draft, phase, messagesLength: messages.length })
   // History-completion ghost (suffix of a past prompt after the caret).
-  const completion = useCompletion({ liveRef, historyRef, draft })
+  const completion = useCompletion({ sessionId, liveRef, historyRef, draft })
   // Clipboard: right-click paste, copy modes, selection toolbar, quote.
   useClipboard({ liveRef })
   // Browsing (↑/↓ with prefix search) and Ctrl+R reverse search.

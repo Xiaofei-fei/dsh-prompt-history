@@ -26,7 +26,7 @@
 | Version mapping | **≥ 1.2.16** supports 0.1.x and 0.2.x together (1.2.16 fixed the rejected install on 0.2.1+; 1.2.17 moved types/deps to the 0.2.x package layout while keeping 0.1.x working). **No 1.3.x breaking line exists or is needed** |
 | Platform | Web GUI only (client plugin; browser-local state; no network, no native code) |
 | Node | `>=20` |
-| Model | Any (only the toggleable context suggestion calls the current session model) |
+| Model | Any (only the toggleable context suggestion and AI continuation call the current session model) |
 | UI language | 中文 / English (follows the DSH app locale, switchable in Settings) |
 
 ## What you get
@@ -41,11 +41,14 @@
    - **Auto** (terminal-style): copies the selection straight to the system clipboard on select.
 5. **Right-click pastes directly** — a right-click on the composer pastes the clipboard — no context menu, like a Linux terminal. Paste runs the same pipeline as Ctrl+V (images and reference chips behave identically), with a Clipboard API fallback when the execCommand path is blocked.
 6. **Cross-session history** (Settings toggle, default off) — keeps Up/Down history across sessions, stored in browser localStorage (cap 200), survives reloads and session switches.
-7. **Prompt completion (Codex-style, Settings toggle, default on)** — while your draft is a prefix of an earlier prompt, the remainder is ghosted after the caret in dim text; accept it in one keystroke with **Tab or →** (Escape ignores it). Matching is case-insensitive, and `/` or `@` drafts are left to the host's own command/reference menus.
-8. **Context suggestion (Codex-style, Settings toggle, default on)** — with an empty composer the plugin hands the recent conversation to the **current session model**, predicts the prompt you are about to write, and shows it as a dim full sentence inside the input with a "Press Tab to accept" hint; **Tab** fills it in (typing, Escape or a new turn dismisses it). It runs once per finished turn plus once when the empty composer gains focus, and caches per context so the same context never calls twice.
+7. **Prompt completion (Codex-style, Settings toggle, default on)** — two sources, one ghost, strict precedence:
+   - **History first**: while your draft is a prefix of an earlier prompt, the remainder is ghosted after the caret. Free and instant.
+   - **Model continuation** (separate toggle, default on): when nothing in history matches, the draft plus the recent conversation goes to the **current session model** after a ~450 ms pause, and the missing tail of your sentence is ghosted in place — so a first clause ("fix the", "把第 3 点") gets finished instead of the feature staying silent until you retype an old prompt verbatim.
+   Accept either with **Tab or →** (Escape ignores it). Matching is case-insensitive, `/` or `@` drafts are left to the host's own command/reference menus, and one draft is asked at most once (the answer, including "nothing fits", is cached per draft).
+8. **Context suggestion (Codex-style, Settings toggle, default on)** — with an empty composer the plugin hands the recent conversation to the **current session model**, predicts the prompt you are about to write, and shows it as a dim full sentence inside the input with a "Press Tab to accept" hint; **Tab** fills it in (typing, Escape or a new turn dismisses it). It runs once per finished turn plus once when the empty composer gains focus, and caches per context so the same context never calls twice. The context it reads is the last 12 conversation turns: tool-call and plan rows are skipped, long answers keep **both** their opening and their conclusion (the tail is usually the part that decides what to ask next), and repaint-only timestamps are stripped.
 9. **Chat TOC (conversation directory)** — when the conversation gets long, a subtle semi-transparent, draggable grip on the chat's left edge (brightens on hover) expands a directory of every user message in order — click any entry to jump to that spot, and scroll through all entries when the list gets long; click outside or press Esc to close. Can be toggled off in Settings.
 
-Pure UI behavior: no session events, no agent-loop changes. History recall, quoting and copying are entirely browser-local and request-free; the single feature that calls a model is **context suggestion**, which you control in Settings (on by default). While enabled it sends at most one tiny prediction request (~512 token budget) per turn to the **current session model**; turn it off and the plugin is fully offline again. Recalled, quoted and predicted text only ever enters the composer draft — it reaches the model only if *you* press Enter.
+Pure UI behavior: no session events, no agent-loop changes. History recall, quoting and copying are entirely browser-local and request-free; the features that call a model are **context suggestion** and **AI continuation**, which you control in Settings (both on by default). While enabled they send at most one tiny request (~512 token budget) per turn and per typing pause to the **current session model**; turn them off and the plugin is fully offline again. Recalled, quoted and predicted text only ever enters the composer draft — it reaches the model only if *you* press Enter.
 
 ## Quick start
 
@@ -72,10 +75,11 @@ Open **Settings → `>_ Terminal Input`** (stored in browser localStorage, effec
 | Cross-session history | Off | Up/Down history persists across sessions in browser localStorage (cap 200) |
 | Context suggestion (Tab accepts) | On | With an empty composer, predicts your next prompt using the current session model; Tab accepts (once per turn, small quota use) |
 | Prompt completion (Tab accepts) | On | Ghosts the matching history prompt while you type; Tab or → accepts, Escape ignores |
+| AI continuation (Tab accepts) | On | When no history prompt matches, the model finishes the half-written message after a pause; Tab or → accepts (one small request per typing pause) |
 | Chat TOC | On | Show the draggable grip on the chat left edge; can be turned off |
 | Right-click paste | On | Off restores the browser's native context menu |
 
-Up/Down history is always on, independent of these switches. Completion shares the same history and the same prefix-matching semantics as Up.
+Up/Down history is always on, independent of these switches. Completion shares the same history and the same prefix-matching semantics as Up; the history pass stays free, and only the model fallback spends quota.
 
 ## Features
 

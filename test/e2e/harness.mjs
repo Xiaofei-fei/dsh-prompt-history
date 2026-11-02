@@ -57,11 +57,14 @@ const SEAM_KEY = 'dsh-prompt-history.testSeam'
 /**
  * Base prefs every suite starts from.
  *
- * The live next-prompt prediction is off on purpose: it needs a model round-trip,
- * so its timing is not reproducible, and when it returns nothing the plugin
+ * Both live model features are off on purpose: they need a model round-trip, so
+ * their timing is not reproducible, and when one returns nothing the plugin
  * legitimately clears the overlay — which would erase the seam's overlay in the
  * middle of a geometry check. The overlay mechanics are exercised through the
  * seam instead, which is the same paint path with a deterministic trigger.
+ * `aiCompletion` is off for the same reason on the ghost path: the history
+ * completion checks read the ghost immediately after typing, and a continuation
+ * arriving mid-check would swap the suffix under them.
  */
 export const BASE_PREFS = {
   version: 3,
@@ -71,6 +74,7 @@ export const BASE_PREFS = {
     globalHistory: false,
     tocVisible: true,
     promptCompletion: true,
+    aiCompletion: false,
     contextSuggest: false,
     sideChat: true,
     writeGuard: true,
