@@ -72,7 +72,6 @@ export const BASE_PREFS = {
     copyMode: 'toolbar',
     rightClickPaste: true,
     globalHistory: false,
-    tocVisible: true,
     promptCompletion: true,
     aiCompletion: false,
     contextSuggest: false,
