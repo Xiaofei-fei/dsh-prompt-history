@@ -8,7 +8,7 @@
  */
 import { launch, openApp, startServer } from './harness.mjs'
 import { composerSuite } from './composer.mjs'
-import { hintLayoutSuite } from './hintLayout.mjs'
+import { predictionBoxSuite } from './predictionBox.mjs'
 import { aiCompletionSuite } from './aiCompletion.mjs'
 import { overlaySuite } from './overlay.mjs'
 import { sideChatSuite } from './sidechat.mjs'
@@ -47,7 +47,7 @@ try {
   await suite('overlay', () => overlaySuite(page, check))
   await suite('composer', () => composerSuite(page, check))
   await suite('side chat', () => sideChatSuite(page, check, browser))
-  await suite('hint layout', () => hintLayoutSuite(browser, check))
+  await suite('prediction box', () => predictionBoxSuite(page, check))
   // The model-continuation path is opt-in: its answer comes from a model, so it
   // cannot be part of a deterministic run. DSH_E2E_AI=1 turns it on.
   if (process.env.DSH_E2E_AI === '1') {

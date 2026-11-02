@@ -9,7 +9,7 @@
  * measured the ghost simply stays hidden — a misplaced hint is worse than none.
  */
 import { COMPOSER_CARD } from './editor.ts'
-import { applyTypeVariables, composerTypeStyle, editorLineHeight, invalidateTypeStyle, subscribeTypeStyle } from './typeStyle.ts'
+import { applyTypeVariables, composerTypeStyle, editorLineHeight, nodeZoom, invalidateTypeStyle, subscribeTypeStyle } from './typeStyle.ts'
 import { claimComposer, registerGhostHider } from './overlayExclusion.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
@@ -206,7 +206,7 @@ function paint(): boolean {
   // caret sits centred in its line box, so the box top is half the difference
   // above it — that lands the two texts on one baseline.
   const line = editorLineHeight(shown.host) || rect.height
-  const top = rect.top - (line - rect.height) / 2
+  const top = rect.top - (line * nodeZoom(shown.host, 1) - rect.height) / 2
   const signature = [
     shown.text, round(rect.right), round(top), round(line), round(rect.height),
     type.fontFamily, type.fontWeight, type.fontStyle, type.letterSpacing, round(type.fontSize),
@@ -214,13 +214,20 @@ function paint(): boolean {
   // The occlusion decision is per overlay and must run on every paint (it is
   // internally gated); only the DOM rebuild waits for a change.
   if (signature !== paintedSignature) {
+    // Same rule as the suggestion overlay: the measurements above are viewport
+    // pixels, the properties below are CSS pixels, and the type has to grow by the
+    // same factor they are divided by (see nodeZoom).
+    const zoom = nodeZoom(el, 1)
+    // Same reasoning as the suggestion overlay: the editor renders `line` through
+    // its own zoom, the ghost through this one, so scale by the ratio.
+    const typeScale = nodeZoom(shown.host, 1) / zoom
     asSelfWrite(() => {
       el.textContent = shown.text
-      applyTypeVariables(el, type, line)
-      el.style.left = `${rect.right}px`
-      el.style.top = `${top}px`
-      el.style.height = `${line}px`
-      el.style.lineHeight = `${line}px`
+      applyTypeVariables(el, type, line * typeScale, typeScale)
+      el.style.left = `${rect.right / zoom}px`
+      el.style.top = `${top / zoom}px`
+      el.style.height = `${line * typeScale}px`
+      el.style.lineHeight = `${line * typeScale}px`
     })
     paintedWidth = el.getBoundingClientRect().width
     paintedSignature = signature

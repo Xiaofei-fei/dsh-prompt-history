@@ -360,37 +360,42 @@ export async function overlaySuite(page, check) {
       && exclusive.afterGhost.ghost && !exclusive.afterGhost.suggestion,
     exclusive)
 
-  // 13) Issue #15 ②③: a wrapped prediction clamps to two lines with an ellipsis,
-  //     and the hint gets its own room below the text instead of landing inside it.
+  // 13) The prediction is clamped to ONE line and carries no hint element: the
+  //     composer is exactly one line tall while it is empty, and the overlay is
+  //     fixed on top of it, so a second row would paint over the toolbar below
+  //     (PR #18 commit 1).
   await clearComposer(page)
-  await seamShowSuggestion(page, '这是一段用于校验两行截断与提示不重叠的很长的预测文本，'.repeat(6))
+  await seamShowSuggestion(page, '这是一段用于校验单行截断与输入框高度的很长的预测文本，'.repeat(6))
   await sleep(600)
-  const wrapped = await page.evaluate(() => {
+  const clamped = await page.evaluate(() => {
     const container = document.querySelector('.dsh-ph-suggest')
     const text = document.querySelector('.dsh-ph-suggest-text')
-    const hint = document.querySelector('.dsh-ph-suggest-hint')
-    if (container === null || text === null) return null
+    const host = document.querySelector('[data-composer-input]')
+    const card = document.querySelector('[data-composer-card]')
+    if (container === null || text === null || host === null) return null
     const box = container.getBoundingClientRect()
     const textBox = text.getBoundingClientRect()
-    const hintBox = hint === null ? null : hint.getBoundingClientRect()
+    const hostBox = host.getBoundingClientRect()
     return {
       line: Number.parseFloat(getComputedStyle(container).lineHeight),
       containerHeight: box.height,
       containerBottom: box.bottom,
       textHeight: textBox.height,
-      textBottom: textBox.bottom,
-      hintTop: hintBox === null ? null : hintBox.top,
-      hintBottom: hintBox === null ? null : hintBox.bottom,
-      hintText: (hint?.textContent ?? '').trim().slice(0, 10),
+      hostHeight: hostBox.height,
+      hostBottom: hostBox.bottom,
+      cardBottom: card === null ? null : card.getBoundingClientRect().bottom,
+      hintPresent: document.querySelector('.dsh-ph-suggest-hint') !== null,
     }
   })
-  check('a wrapped prediction clamps to two lines and keeps its hint clear',
-    wrapped !== null
-      && wrapped.textHeight <= wrapped.line * 2 + 2
-      && wrapped.containerHeight >= wrapped.textHeight - 1
-      // Either the hint is gone (wrapped text drops it) or it sits below the text.
-      && (wrapped.hintText === '' || wrapped.hintTop >= wrapped.textBottom - 1),
-    wrapped)
+  check('a long prediction clamps to one line and fits the composer box',
+    clamped !== null
+      && clamped.textHeight <= clamped.line + 2
+      && clamped.hintPresent === false
+      // The overlay must not reach past the editor's own box: that is what used to
+      // paint over the toolbar.
+      && clamped.containerHeight <= clamped.hostHeight + 2
+      && clamped.containerBottom <= clamped.hostBottom + 2,
+    clamped)
   await seamHideSuggestion(page)
 
   // 14) Issue #17: the overlay mirrors the EDITOR's type style, not the card's, and
@@ -427,11 +432,14 @@ export async function overlaySuite(page, check) {
       inlineFont: overlay.style.font,
     }
   })
+  // Computed sizes go through float parsing, so compare numerically, not as
+  // strings: the overlay legitimately reads 13.0001px against the editor's 13px.
   const pendingState = themed === null
     ? null
     : {
       ...themed,
-      matchesEditor: themed.textSize === themed.hostSize && themed.overlaySize === themed.hostSize,
+      matchesEditor: Math.abs(Number.parseFloat(themed.textSize) - Number.parseFloat(themed.hostSize)) <= 0.05
+        && Math.abs(Number.parseFloat(themed.overlaySize) - Number.parseFloat(themed.hostSize)) <= 0.05,
     }
   await page.evaluate(() => {
     document.querySelector('[data-e2e-type-size]')?.remove()

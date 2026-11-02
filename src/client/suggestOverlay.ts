@@ -11,14 +11,14 @@
 import { COMPOSER_CARD, editorHost, editorText } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
-import { applyTypeVariables, composerTypeStyle, invalidateTypeStyle, subscribeTypeStyle } from './typeStyle.ts'
+import { applyTypeVariables, composerTypeStyle, invalidateTypeStyle, nodeZoom, subscribeTypeStyle } from './typeStyle.ts'
 import { getPrefs } from './prefs.ts'
 import { claimComposer, registerSuggestionHider } from './overlayExclusion.ts'
 import { sitBelowCover } from './occlusion.ts'
 
 const CLASS = 'dsh-ph-suggest'
-/** ③ Long predictions are clamped to this many lines with an ellipsis. */
-const MAX_TEXT_LINES = 2
+/** ③ Predictions are clamped to a single line, ending with an ellipsis. */
+const MAX_TEXT_LINES = 1
 /** Toggled on the composer card while a prediction is on screen. */
 const CARD_CLASS = 'dsh-ph-suggesting'
 /** The composer's own placeholder ("描述你想要构建的内容…"). */
@@ -165,10 +165,6 @@ function ensureStyle(): void {
     // the prediction is a stand-in for placeholder text, not body text.
     `.${CLASS} .dsh-ph-suggest-text{color:var(--dsw-alias-label-caption,currentColor);opacity:1;}`,
     `.${CLASS}--pending .dsh-ph-suggest-text{opacity:1;font-style:inherit;}`,
-    `.${CLASS} .dsh-ph-suggest-hint{font-size:var(--dsh-ph-hint-size,.9em);`,
-    'color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-caption,currentColor));opacity:1;}',
-    `.${CLASS} .dsh-ph-suggest-hint--block{display:block;}`,
-    // The composer's own hint must not sit under the prediction.
     `[data-composer-card].${CARD_CLASS} [data-composer-placeholder],`,
     `[data-composer-card].${CARD_CLASS} [class*="placeholder"]{visibility:hidden !important;}`,
   ].join('')
@@ -216,7 +212,11 @@ function editorBox(host: HTMLElement): { left: number; top: number; width: numbe
   const rect = host.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return null
   const style = window.getComputedStyle(host)
-  const pad = (side: string): number => Number.parseFloat(style.getPropertyValue(side)) || 0
+  // `rect` is in viewport pixels, `getPropertyValue` and `fontSize` are in CSS
+  // pixels. A theme that zooms `body` separates the two, so padding has to be
+  // brought up to viewport pixels before it is subtracted from the rect.
+  const zoom = nodeZoom(host, 1)
+  const pad = (side: string): number => (Number.parseFloat(style.getPropertyValue(side)) || 0) * zoom
   const fontSize = Number.parseFloat(style.fontSize) || 14
   const rawLine = Number.parseFloat(style.lineHeight)
   const line = Number.isFinite(rawLine) && rawLine > 0 ? rawLine : fontSize * 1.5
@@ -224,7 +224,7 @@ function editorBox(host: HTMLElement): { left: number; top: number; width: numbe
     left: rect.left + pad('padding-left'),
     top: rect.top + pad('padding-top'),
     width: Math.max(40, rect.width - pad('padding-left') - pad('padding-right')),
-    height: Math.max(line, rect.height - pad('padding-top') - pad('padding-bottom')),
+    height: Math.max(line * zoom, rect.height - pad('padding-top') - pad('padding-bottom')),
     line,
   }
 }
@@ -265,7 +265,6 @@ function paint(): boolean {
     painted.text, painted.hint, painted.pending === true ? '1' : '0',
     round(box.left), round(box.top), round(box.width), round(box.height), round(box.line),
     style.fontFamily, style.fontWeight, style.fontStyle, style.letterSpacing, round(style.fontSize),
-    getPrefs().suggestLayout,
   ].join('\u0000')
   // A popup covering the composer outranks the overlay's own layer; drop just
   // below it so the panel covers the ghost instead of the ghost bleeding around
@@ -283,16 +282,7 @@ function paint(): boolean {
   const textEl = document.createElement('span')
   textEl.className = 'dsh-ph-suggest-text'
   textEl.textContent = painted.text
-  const hintEl = document.createElement('span')
-  hintEl.className = 'dsh-ph-suggest-hint'
-  // The prediction may itself mention Tab (the conversation talks about it);
-  // never repeat the hint in that case. A pending line never carries one.
-  const wantHint = painted.pending !== true && painted.hint !== '' && !/tab/i.test(painted.text)
-  // `oneLineWithHint` clamps the prediction to a single line and always renders the
-  // hint as a block below it — the shape that fits a 48 px composer exactly.
-  const layout = getPrefs().suggestLayout
-  const oneLine = layout === 'oneLineWithHint'
-  const maxLines = oneLine ? 1 : MAX_TEXT_LINES
+  const maxLines = MAX_TEXT_LINES
 
   // The clamp gives a real ellipsis instead of letting overflow:hidden cut the
   // sentence mid-word.
@@ -301,45 +291,34 @@ function paint(): boolean {
   textEl.style.webkitBoxOrient = 'vertical'
   textEl.style.overflow = 'hidden'
 
+  // The overlay may sit in a different zoom than the editor (a theme that scales
+  // `body` compensates fixed overlays with `zoom: 1 / scale`). Everything above was
+  // measured in viewport pixels, so dividing by this factor puts the CSS-pixel
+  // properties back on that box, while the type is scaled up by it — otherwise the
+  // prediction renders at 1/zoom of the draft's size.
+  const zoom = nodeZoom(el, 1)
+  // The type has to end up at the editor's visual size. `style.fontSize` and
+  // `box.line` are CSS pixels, so the editor renders them through its own zoom;
+  // the overlay renders them through its (usually smaller, compensated) one.
+  // Scaling by host / self makes the two agree whichever pair is in play.
+  const typeScale = nodeZoom(painted.host, 1) / zoom
   asSelfWrite(() => {
     el.textContent = ''
-    el.append(textEl, hintEl)
-    applyTypeVariables(el, style, box.line)
-    el.style.left = `${box.left}px`
-    el.style.top = `${box.top}px`
-    el.style.width = `${box.width}px`
-    el.style.lineHeight = `${box.line}px`
+    el.append(textEl)
+    applyTypeVariables(el, style, box.line * typeScale, typeScale)
+    el.style.left = `${box.left / zoom}px`
+    el.style.top = `${box.top / zoom}px`
+    el.style.width = `${box.width / zoom}px`
+    el.style.lineHeight = `${box.line * typeScale}px`
     // The container follows its content: a clamped prediction needs more room than
     // an empty editor had, and clipping it was what made long predictions read as a
     // smear. Height is finished below, once measured.
-    el.style.height = `${box.height}px`
-    el.style.setProperty('--dsh-ph-hint-size', `${Math.max(10, style.fontSize - 2)}px`)
-    hintEl.textContent = wantHint ? ` ${painted.hint}` : ''
+    el.style.height = `${box.height / zoom}px`
   })
 
-  const textHeight = textEl.getBoundingClientRect().height
-  const textIsOneLine = textHeight <= box.line * 1.5
-  const showHint = wantHint && (oneLine || textIsOneLine)
-  // A wrapped two-line prediction already fills the room the hint would need, so
-  // the hint is dropped there (it would land on the composer footer).
-  const blockHint = showHint && oneLine
-  // The hint's FINAL layout has to be in the DOM before it is measured: measuring
-  // the inline version and then switching to a block under-sized the container.
+  const textHeight = textEl.getBoundingClientRect().height / zoom
   asSelfWrite(() => {
-    if (!showHint) {
-      hintEl.textContent = ''
-      hintEl.classList.remove('dsh-ph-suggest-hint--block')
-    } else if (blockHint) {
-      hintEl.classList.add('dsh-ph-suggest-hint--block')
-      hintEl.textContent = painted.hint
-    } else {
-      hintEl.classList.remove('dsh-ph-suggest-hint--block')
-      hintEl.textContent = ` ${painted.hint}`
-    }
-  })
-  const hintHeight = showHint && blockHint ? hintEl.getBoundingClientRect().height : 0
-  asSelfWrite(() => {
-    const height = Math.max(box.height, textHeight + hintHeight)
+    const height = Math.max(box.height / zoom, textHeight)
     el.style.height = `${height}px`
   })
   paintedSignature = signature
@@ -387,14 +366,15 @@ export function showPending(text: string, host: HTMLElement, options: ShowSugges
 }
 
 /**
- * Draw the predicted prompt inside the empty composer.
+ * Draw the predicted prompt inside the empty composer, on a single line.
  *
- * The hint sits on its own line when the composer is tall enough (the Codex
- * look) and inline after the prediction when it is not, so nothing is ever
- * clipped.
+ * The prediction is clamped to one line and ends with the clamp's ellipsis. The
+ * composer is exactly one line tall while a prediction is on screen, so a second
+ * line of anything — the prediction itself or an accept hint — would spill past
+ * the input border and paint over the toolbar below it.
  * @param text - the predicted next prompt.
- * @param hint - the accept hint copy (already localized).
- * @param host - the composer editor host to align against.
+ * @param hint - no longer rendered; kept so existing call sites keep compiling.
+ * @deprecated The `hint` argument is ignored. The overlay never draws a hint.
  * @returns whether the overlay is on screen.
  */
 export interface ShowSuggestionOptions {

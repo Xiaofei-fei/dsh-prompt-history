@@ -30,6 +30,7 @@ export interface PluginPrefs {
    */
   promptCompletion: boolean
   /**
+  /**
    * Model continuation for the composer: when no history prompt matches the
    * draft, ask the session model to finish the half-written message from the
    * recent conversation and ghost the missing tail after the caret.
@@ -38,17 +39,6 @@ export interface PluginPrefs {
    * comes from history.
    */
   aiCompletion: boolean
-  /**
-   * How the prediction hint is laid out.
-   *
-   * - `twoLines`: the prediction may use two lines (clamped with an ellipsis); the
-   *   trailing hint is kept for one-line predictions and dropped once the text
-   *   wraps, because a block hint below a two-line prediction lands on the
-   *   composer footer.
-   * - `oneLineWithHint`: the prediction is clamped to one line and the hint always
-   *   sits below it as a block — the combination that fits the composer exactly.
-   */
-  suggestLayout: 'twoLines' | 'oneLineWithHint'
   /**
    * Remind when the side chat and the main conversation touch the same files in
    * parallel. Warning only: nothing is blocked.
@@ -80,7 +70,6 @@ const DEFAULTS: PluginPrefs = {
   contextSuggest: true,
   sideChat: true,
   writeGuard: true,
-  suggestLayout: 'twoLines',
 }
 
 /** Current prefs; replaced on every setPref (stable snapshot identity). */
@@ -134,7 +123,6 @@ function migrate(parsed: unknown): PluginPrefs {
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
     sideChat: storedVersion >= 3 ? bool(source.sideChat, sideChatDefault) : true,
     writeGuard: bool(source.writeGuard, DEFAULTS.writeGuard),
-    suggestLayout: source.suggestLayout === 'oneLineWithHint' ? 'oneLineWithHint' : 'twoLines',
   }
 }
 
