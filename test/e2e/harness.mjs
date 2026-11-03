@@ -173,7 +173,7 @@ export async function openApp(browser, prefs = BASE_PREFS) {
   page.on('pageerror', (error) => errors.push(`pageerror: ${String(error).slice(0, 160)}`))
   // Host-transport noise (the gateway hiccuping while a second server shares the
   // same profile) is not a plugin error; only the app's own failures count.
-  const HOST_NOISE = /404|Failed to load resource|Failed to fetch|gateway\/internal|dynamicCordisRunner|cordis-client-runner|client api:/
+  const HOST_NOISE = /404|Failed to load resource|Failed to fetch|gateway\/internal|dynamicCordisRunner|cordis-client-runner|client api:|remote\.mux|Connection closed before receiving a handshake response/
   page.on('console', (message) => {
     if (message.type() === 'error' && !HOST_NOISE.test(message.text())) {
       errors.push(message.text().slice(0, 160))

@@ -17,10 +17,6 @@ export interface QuoteContext {
   readonly text: string
   /** The conversation row the selection starts in, when there is one. */
   readonly row: HTMLElement | null
-  /** That row's flow kind, when the host exposes it. */
-  readonly kind: 'user' | 'steering' | 'assistant' | 'other'
-  /** Which conversation turn the row belongs to (1-based), or 0 when unknown. */
-  readonly turn: number
   /** Opening fence (```` ```ts ````) when the selection is code, else null. */
   readonly fence: string | null
 }
@@ -37,25 +33,6 @@ const MARKER = /^([❝❞※\\])/
  */
 function conversationRows(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
-}
-
-/**
- * The turn a row belongs to: a user/steering row opens one, an assistant row
- * answers the most recent one.
- * @param row - the row to locate.
- * @returns the 1-based turn, or 0 when the row is not in the conversation.
- */
-function turnOf(row: HTMLElement): number {
-  let turn = 0
-  for (const candidate of conversationRows()) {
-    const kind = candidate.getAttribute('data-chat-flow-kind') ?? ''
-    if (kind === 'user' || kind === 'steering') turn += 1
-    if (candidate === row) {
-      // An assistant row answers the turn that is already open.
-      return kind === 'assistant' ? Math.max(1, turn) : Math.max(1, turn)
-    }
-  }
-  return 0
 }
 
 /**
@@ -95,30 +72,12 @@ export function captureQuoteContext(): QuoteContext | null {
   const start = range.startContainer
   const element = start.nodeType === Node.ELEMENT_NODE ? start as Element : start.parentElement
   const row = element?.closest<HTMLElement>('[data-chat-anchor-key]') ?? null
-  const rawKind = row?.getAttribute('data-chat-flow-kind') ?? ''
-  const kind = rawKind === 'user' || rawKind === 'steering' || rawKind === 'assistant' ? rawKind : 'other'
   const fence = fenceOf(range)
   // Code keeps its whitespace; prose from a message row drops the row's clock and
   // blank-line padding.
   const text = fence === null && row !== null ? cleanRowText(raw) : raw
   if (text.trim() === '') return null
-  return {
-    text,
-    row,
-    kind,
-    turn: row === null ? 0 : turnOf(row),
-    fence,
-  }
-}
-
-/**
- * Whether a selection happens inside a conversation message (so it can carry a
- * source attribution), or somewhere else such as a file preview.
- * @param context - the captured selection.
- * @returns true when a row was found.
- */
-export function hasSource(context: QuoteContext): boolean {
-  return context.row !== null && context.turn > 0
+  return { text, row, fence }
 }
 
 /** A trailing clock stamp the transcript row carries but the quote should not. */
@@ -156,7 +115,6 @@ function guard(line: string): string {
  * ```
  * > ❝ quoted line
  * > ❞ comment line
- * ※ 引自第 3 轮 · 助手
  * ```
  * @param context - the captured selection.
  * @param comment - the user's comment, or ''.
@@ -178,10 +136,6 @@ export function formatQuote(context: QuoteContext, comment: string, perItem: boo
     const commentLines = comment.trim().split('\n')
     commentLines[0] = `❞ ${commentLines[0] ?? ''}`
     lines.push(...commentLines.map((line) => `> ${line}`))
-  }
-  if (hasSource(context)) {
-    const who = context.kind === 'assistant' ? '助手' : context.kind === 'user' ? '用户' : '对话'
-    lines.push(`※ 引自第 ${context.turn} 轮 · ${who}`)
   }
   if (perItem) lines.push(`> ${PER_ITEM}`)
   return lines.join('\n')

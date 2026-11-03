@@ -162,9 +162,9 @@ export async function composerSuite(page, check) {
   await sleep(900)
   const quoted = (await composerText(page) ?? '').trim()
   const quotedNorm = normalizePrompt(quoted)
-  check('the quote carries the text, the comment and its source turn',
+  check('the quote carries the text and the comment, without an attribution line',
     quoted.startsWith('> ') && quotedNorm.includes('❝') && quotedNorm.includes('❞')
-      && quotedNorm.includes('这条引用的评论') && /引自第 \d+ 轮/.test(quotedNorm),
+      && quotedNorm.includes('这条引用的评论') && !quotedNorm.includes('引自第'),
     { quoted: quotedNorm.slice(0, 120) })
   await clearComposer(page)
 
