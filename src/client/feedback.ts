@@ -52,7 +52,7 @@ function ensureToolbarStyle(): void {
   tag.dataset.pluginCss = 'dsh-ph-toolbar'
   tag.textContent = [
     `.${BAR_CLASS}{position:fixed;z-index:2147483000;display:flex;align-items:center;padding:4px;`,
-    'border-radius:8px;background:var(--dsw-specific-menu);',
+    'border-radius:8px;background:var(--dsw-alias-bg-layer-1);',
     'border:1px solid var(--dsw-alias-border-l1);box-shadow:0 4px 16px rgba(0,0,0,.25);}',
     `.${BAR_CLASS} button{border:0;border-radius:6px;padding:4px 12px;font-size:12px;line-height:1.4;cursor:pointer;`,
     'background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
@@ -163,7 +163,7 @@ export function showSearchOverlay(query: string, match: string): void {
     'left:50%;transform:translateX(-50%);' +
     `top:${cardRect !== null ? Math.max(4, cardRect.top - 34) : 8}px;` +
     'max-width:min(640px, calc(100vw - 24px));padding:5px 12px;border-radius:8px;' +
-    'background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);' +
+    'background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);' +
     'color:var(--dsw-alias-label-primary);font:12px ui-monospace,SFMono-Regular,Consolas,monospace;' +
     'box-shadow:0 4px 16px rgba(0,0,0,.25);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
   q.style.cssText = 'color:var(--dsw-static-blue-900);'
@@ -183,7 +183,7 @@ function ensureComposerStyle(): void {
   tag.textContent = [
     `.${COMPOSER_CLASS}{position:fixed;z-index:2147483000;box-sizing:border-box;width:360px;display:flex;`,
     'flex-direction:column;gap:8px;padding:10px;border-radius:10px;',
-    'background:var(--dsw-specific-menu);border:1px solid var(--dsw-alias-border-l1);',
+    'background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);',
     'box-shadow:0 8px 28px rgba(0,0,0,.28);font:12px system-ui,sans-serif;}',
     `.${COMPOSER_CLASS}-preview{max-height:72px;overflow:auto;padding:6px 8px;border-radius:6px;`,
     'white-space:pre-wrap;word-break:break-word;background:var(--dsw-alias-bg-layer-1);',
