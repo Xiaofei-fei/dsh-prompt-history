@@ -143,11 +143,29 @@ export async function composerSuite(page, check) {
       .find((b) => /引用|Quote/.test(b.textContent ?? ''))
     if (quote !== undefined) quote.click()
   })
-  await sleep(1000)
+  await sleep(800)
+  // The quote opens a comment box first (quote + comment + source are one block).
+  const commentPanel = await page.evaluate(() => {
+    const panel = document.querySelector('.dsh-ph-qc')
+    if (panel === null) return null
+    return {
+      preview: (panel.querySelector('.dsh-ph-qc-preview')?.textContent ?? '').trim(),
+      hasCheck: panel.querySelector('input[type=checkbox]') !== null,
+    }
+  })
+  check('quoting asks for a comment and shows the selected text',
+    commentPanel !== null && commentPanel.preview !== '' && commentPanel.hasCheck === true,
+    { buttons, commentPanel })
+  await page.evaluate(() => { const t = document.querySelector('.dsh-ph-qc textarea'); if (t !== null) t.focus() })
+  await page.keyboard.type('这条引用的评论')
+  await page.keyboard.press('Enter')
+  await sleep(900)
   const quoted = (await composerText(page) ?? '').trim()
-  check('quote inserts the conversation selection while the composer holds focus',
-    quoted.startsWith('> '),
-    { buttons, quoted: quoted.slice(0, 30) })
+  const quotedNorm = normalizePrompt(quoted)
+  check('the quote carries the text, the comment and its source turn',
+    quoted.startsWith('> ') && quotedNorm.includes('❝') && quotedNorm.includes('❞')
+      && quotedNorm.includes('这条引用的评论') && /引自第 \d+ 轮/.test(quotedNorm),
+    { quoted: quotedNorm.slice(0, 120) })
   await clearComposer(page)
 
 }

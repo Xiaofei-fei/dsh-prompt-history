@@ -12,8 +12,9 @@
  */
 import { useEffect } from 'react'
 import {
-  flashCopied, hideSelectionToolbar, showSelectionToolbar,
+  flashCopied, flashQuoteRow, hideSelectionToolbar, showQuoteComposer, showSelectionToolbar,
 } from './feedback.ts'
+import { captureQuoteContext, formatQuote } from './quoteContext.ts'
 import { T } from './i18n.ts'
 import {
   editorHost, editorSelectedText, editorSelectionOffsets, focusEditor, isEditorTarget, setEditorCaret,
@@ -163,36 +164,13 @@ export function useClipboard(input: ClipboardInput): void {
       dragStartedInEditor = isEditorTarget(e.target)
     }
 
-    // 引用: insert the FULL selected text into the composer as a markdown quote
-    // block (each line prefixed with '> ', Codex-style) — everything is visible
-    // and editable in the input. A blank line before (unless the draft starts
-    // there) and a blank line after keep the quote distinct from the user's own
-    // next input, which begins on a fresh line after the caret.
-    const quoteSelection = (): void => {
+    /** Insert one already-formatted quote block into the composer at the caret. */
+    const insertQuote = (quoted: string, atEnd: boolean): void => {
       const live = liveRef.current
-      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
       const host = editorHost()
       if (host === null) return
-      // Where the selection LIVES decides which reader to use — not which
-      // element has focus. The composer keeps focus after sending, so a user
-      // selecting a message and pressing 引用 would otherwise have the empty
-      // in-composer selection read instead and nothing would happen.
-      const sel = document.getSelection()
-      const selectionInHost = sel !== null && sel.rangeCount > 0 && sel.anchorNode !== null && host.contains(sel.anchorNode)
-      const hostFocused = selectionInHost
-      let text = ''
-      if (selectionInHost) {
-        text = editorSelectedText(host)
-      } else if (sel !== null && !sel.isCollapsed) {
-        text = sel.toString()
-      }
-      if (text.trim() === '') return
-      // A plain markdown blockquote (each line prefixed with '> '), matching how
-      // other DSH quote plugins format it — minimal and clean in the input,
-      // rendered as a proper blockquote when sent.
-      const quoted = '> ' + text.replace(/\n/g, '\n> ')
       const draft = live.draft
-      const caret = hostFocused ? (editorSelectionOffsets(host)?.start ?? draft.length) : draft.length
+      const caret = atEnd ? draft.length : (editorSelectionOffsets(host)?.start ?? draft.length)
       // A blank line before the quote separates it from prior text; a SINGLE
       // newline after lets the next input start on the line right below it.
       const lead = caret > 0 && draft[caret - 1] !== '\n' ? '\n\n' : caret > 0 ? '\n' : ''
@@ -205,6 +183,48 @@ export function useClipboard(input: ClipboardInput): void {
         setEditorCaret(host, pos)
       })
       flashCopied(null, T('pill.quoted'))
+    }
+
+    // 引用: capture what was selected AND where it came from, then put a block in
+    // the composer that carries the text, an optional comment and the source turn
+    // ("※ 引自第 N 轮 · 助手"). A code selection arrives as a fenced block so the
+    // model reads real code instead of a paragraph of it.
+    const quoteSelection = (): void => {
+      const live = liveRef.current
+      if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
+      const host = editorHost()
+      if (host === null) return
+      // Where the selection LIVES decides which reader to use — not which
+      // element has focus. The composer keeps focus after sending, so a user
+      // selecting a message and pressing 引用 would otherwise have the empty
+      // in-composer selection read instead and nothing would happen.
+      const sel = document.getSelection()
+      const selectionInHost = sel !== null && sel.rangeCount > 0 && sel.anchorNode !== null && host.contains(sel.anchorNode)
+      if (selectionInHost) {
+        // A selection inside the composer is an edit, not a quote.
+        return
+      }
+      const context = captureQuoteContext()
+      if (context === null) return
+      const atEnd = live.draft.length > 0 && live.draft.trimEnd().length === live.draft.length
+      const rect = selectionRect()
+      const apply = (comment: string, perItem: boolean): void => {
+        insertQuote(formatQuote(context, comment, perItem), atEnd)
+        flashQuoteRow(context.row)
+      }
+      if (!getPrefs().quoteComment) {
+        apply('', false)
+        return
+      }
+      void showQuoteComposer(
+        rect ?? new DOMRect(window.innerWidth / 2 - 180, window.innerHeight / 2, 0, 0),
+        context.text,
+        false,
+      ).then((result) => {
+        // Cancelled: nothing was inserted and the draft is untouched.
+        if (result === null) return
+        apply(result.comment, result.perItem)
+      })
     }
 
     const onSelectionChange = (): void => {
@@ -230,6 +250,13 @@ export function useClipboard(input: ClipboardInput): void {
         if (mode === 'auto') {
           copySelection()
         } else {
+          // Another quote plugin shows its own bar for the same selection
+          // (`dshq-actions`); two toolbars stacked on one selection is worse than
+          // either, so ours stands down when that pref is on.
+          if (getPrefs().quoteYield && document.querySelector('.dshq-actions') !== null) {
+            hideSelectionToolbar()
+            return
+          }
           const rect = selectionRect()
           if (rect !== null) {
             // The action only exists while the feature is on: a disabled side

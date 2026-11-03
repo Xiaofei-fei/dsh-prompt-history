@@ -46,6 +46,22 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
       <label className="dsh-ph-row">
         <input
           type="checkbox"
+          checked={prefs.quoteComment}
+          onChange={(e) => { setPref('quoteComment', e.target.checked) }}
+        />
+        <span>{t('quote.toggle')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.quoteYield}
+          onChange={(e) => { setPref('quoteYield', e.target.checked) }}
+        />
+        <span>{t('quote.yieldToggle')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
           checked={prefs.promptEnhance}
           onChange={(e) => { setPref('promptEnhance', e.target.checked) }}
         />

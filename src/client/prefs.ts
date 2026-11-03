@@ -29,6 +29,17 @@ export interface PluginPrefs {
   promptCompletion: boolean
   /**
   /**
+   * Quoting opens a small comment box first: the quote and the comment become one
+   * block (with its source turn) instead of a bare blockquote. Off restores the
+   * one-click quote.
+   */
+  quoteComment: boolean
+  /**
+   * When another quote plugin (one whose toolbar is `.dshq-actions`) shows its bar
+   * for the same selection, hide ours instead of stacking two toolbars.
+   */
+  quoteYield: boolean
+  /**
    * Prompt enhancement: the composer shows a ✨ button that rewrites the draft
    * into a structured prompt through the session model. Never applies by itself —
    * the rewrite lands in a compare panel with an explicit apply and an undo.
@@ -71,6 +82,8 @@ const DEFAULTS: PluginPrefs = {
   promptCompletion: true,
   aiCompletion: true,
   promptEnhance: true,
+  quoteComment: true,
+  quoteYield: true,
   contextSuggest: true,
   sideChat: true,
   writeGuard: true,
@@ -124,6 +137,8 @@ function migrate(parsed: unknown): PluginPrefs {
     promptCompletion: bool(source.promptCompletion, DEFAULTS.promptCompletion),
     aiCompletion: bool(source.aiCompletion, DEFAULTS.aiCompletion),
     promptEnhance: bool(source.promptEnhance, DEFAULTS.promptEnhance),
+    quoteComment: bool(source.quoteComment, DEFAULTS.quoteComment),
+    quoteYield: bool(source.quoteYield, DEFAULTS.quoteYield),
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
     sideChat: storedVersion >= 3 ? bool(source.sideChat, sideChatDefault) : true,
     writeGuard: bool(source.writeGuard, DEFAULTS.writeGuard),
