@@ -164,8 +164,9 @@ export async function composerSuite(page, check) {
   // draft stays empty and the note card carries the selection.
   const noteState = await quoteState(page)
   const noteDraft = (await composerText(page) ?? '').trim()
-  check('the quote keeps the draft empty and shows its note card',
-    noteDraft === '' && noteState.hostOpen === '1' && noteState.rows.length === 1,
+  check('the quote keeps the draft empty and shows its note card with the comment',
+    noteDraft === '' && noteState.hostOpen === '1' && noteState.rows.length === 1
+      && noteState.rows.some((row) => String(row).includes('这条引用的评论')),
     { draft: JSON.stringify(noteDraft.slice(0, 40)), rows: noteState.rows, hostOpen: noteState.hostOpen })
   await clearQuotes(page)
   await clearComposer(page)

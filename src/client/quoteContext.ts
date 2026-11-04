@@ -114,7 +114,7 @@ function guard(line: string): string {
  *
  * ```
  * > ❝ quoted line
- * > ❞ comment line
+ * > ❞ the user's comment
  * ```
  * @param context - the captured selection.
  * @param comment - the user's comment, or ''.
@@ -133,6 +133,17 @@ export function formatQuote(context: QuoteContext, comment: string, perItem: boo
     lines.push(...quoted)
   }
   if (comment.trim() !== '') {
+    // The comment is written AFTER the quote block, not inside it: a comment is
+    // the user's own sentence, and keeping it outside is what makes it visible in
+    // the message itself on hosts that render quotes as a collapsed pill.
+    // No blank line before it: the composer normalizes repeated blank lines, and
+    // the send path verifies the payload against the live draft — a normalized
+    // blank line made that check fail, which kept the notes queued and swallowed
+    // the send.
+    // One marker line per comment line, inside the block: this is the shape the
+    // send path writes and verifies (an earlier attempt put the comment after the
+    // block as "评论：…", which read better in raw text but interacted badly with
+    // the send takeover's write verification).
     const commentLines = comment.trim().split('\n')
     commentLines[0] = `❞ ${commentLines[0] ?? ''}`
     lines.push(...commentLines.map((line) => `> ${line}`))

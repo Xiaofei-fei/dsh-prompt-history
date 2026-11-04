@@ -161,9 +161,16 @@ export function clearQuotes(sessionId: string | undefined): void {
   setEntries(sessionId, [])
 }
 
-/** Rewrite one quote's text (the card's edit button). */
-export function editQuoteEntry(sessionId: string | undefined, entry: QuoteEntry, text: string): void {
-  setEntries(sessionId, quoteEntries(sessionId).map((item) => item.id === entry.id ? { ...item, text } : item))
+/** Rewrite one quote's text and comment (the card's edit button). */
+export function editQuoteEntry(
+  sessionId: string | undefined,
+  entry: QuoteEntry,
+  text: string,
+  comment?: string,
+): void {
+  setEntries(sessionId, quoteEntries(sessionId).map((item) => item.id === entry.id
+    ? { ...item, text, ...(comment === undefined ? {} : { comment }) }
+    : item))
 }
 
 /**
@@ -442,6 +449,14 @@ const QUOTE_CSS = [
   '.dsh-ph-quote-label{color:var(--dsw-alias-label-tertiary,#8b949e);font-size:11px;}',
   '.dsh-ph-quote-text{white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary,#1f2328);max-height:120px;overflow:auto;}',
   '.dsh-ph-quote-edit{width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.15));border-radius:8px;padding:4px 6px;font:12px/1.5 system-ui,sans-serif;color:var(--dsw-alias-label-primary,#1f2328);background:var(--dsw-alias-bg-layer-2,#f6f8fa);}',
+  // The comment used to live only inside the wire text, so a queued note showed
+  // the quote and hid what the user had written about it (issue: "评论看不到").
+  '.dsh-ph-quote-comment{margin-top:6px;padding:5px 8px;border-radius:8px;border-left:2px solid color-mix(in srgb,var(--dsw-static-blue-900,#0e3074) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 5%,var(--dsw-alias-bg-layer-1,#fff));}',
+  '.dsh-ph-quote-comment-head{font-size:11px;color:var(--dsw-alias-label-tertiary,#8b949e);margin-bottom:2px;}',
+  '.dsh-ph-quote-comment-body{white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary,#1f2328);}',
+  '.dsh-ph-quote-edit-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:6px;}',
+  '.dsh-ph-quote-act{border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.15));border-radius:7px;padding:3px 10px;font:12px system-ui,sans-serif;cursor:pointer;background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-primary,#1f2328);}',
+  '.dsh-ph-quote-act:hover{background:var(--dsw-alias-bg-layer-3,#eef1f4);}',
   '.dsh-ph-quote-icon{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#8b949e);cursor:pointer;font-size:13px;padding:2px 4px;border-radius:6px;line-height:1.2;}',
   '.dsh-ph-quote-icon:hover{background:var(--dsw-alias-bg-layer-3,rgba(0,0,0,.06));color:var(--dsw-alias-label-primary,#1f2328);}',
   // Same treatment as the sent-message pill: a large, opaque, primary-coloured
@@ -512,6 +527,7 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
   const [mount, setMount] = useState<HTMLDivElement | null>(null)
   const [editingId, setEditingId] = useState(0)
   const [editingText, setEditingText] = useState('')
+  const [editingComment, setEditingComment] = useState('')
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -682,7 +698,7 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
     const text = editingText
     setEditingId(0)
     if (text.trim() === '' || text === entry.text) return
-    editQuoteEntry(sessionId, entry, text)
+    editQuoteEntry(sessionId, entry, text, editingComment)
   }
 
   const rows = entries.map((entry) => {
@@ -694,32 +710,60 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
           <div className="dsh-ph-quote-label">{T('quote.selected') + ':'}</div>
           {editing
             ? (
-              <textarea
-                className="dsh-ph-quote-edit"
-                value={editingText}
-                rows={Math.min(6, Math.max(2, editingText.split('\n').length))}
-                autoFocus
-                onChange={(event) => setEditingText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    setEditingId(0)
-                    return
-                  }
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    commitEdit(entry)
-                  }
-                }}
-              />
+              <>
+                <textarea
+                  className="dsh-ph-quote-edit"
+                  value={editingText}
+                  rows={Math.min(6, Math.max(2, editingText.split('\n').length))}
+                  autoFocus
+                  onChange={(event) => setEditingText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setEditingId(0)
+                      return
+                    }
+                    // Enter commits only from a single-line edit; a multi-line
+                    // quote keeps its newlines and is committed with the button.
+                    if (event.key === 'Enter' && !event.shiftKey && !editingText.includes('\n')) {
+                      event.preventDefault()
+                      commitEdit(entry)
+                    }
+                  }}
+                />
+                <div className="dsh-ph-quote-label" style={{ marginTop: '6px' }}>{T('quote.commentLabel')}</div>
+                <textarea
+                  className="dsh-ph-quote-edit"
+                  value={editingComment}
+                  placeholder={T('quote.commentPlaceholder')}
+                  rows={Math.min(4, Math.max(1, editingComment.split('\n').length))}
+                  onChange={(event) => setEditingComment(event.target.value)}
+                />
+                <div className="dsh-ph-quote-edit-actions">
+                  <button type="button" className="dsh-ph-quote-act" onClick={() => { commitEdit(entry) }}>{T('quote.save')}</button>
+                  <button type="button" className="dsh-ph-quote-act" onClick={() => { setEditingId(0) }}>{T('quote.cancel')}</button>
+                </div>
+              </>
             )
-            : <div className="dsh-ph-quote-text">{entry.text}</div>}
+            : (
+              <>
+                <div className="dsh-ph-quote-text">{entry.text}</div>
+                {entry.comment.trim() !== ''
+                  ? (
+                    <div className="dsh-ph-quote-comment">
+                      <div className="dsh-ph-quote-comment-head">{T('quote.commentLabel')}</div>
+                      <div className="dsh-ph-quote-comment-body">{entry.comment}</div>
+                    </div>
+                  )
+                  : null}
+              </>
+            )}
         </div>
         <button
           type="button"
           className="dsh-ph-quote-icon"
           title={T('quote.edit')}
-          onClick={() => { setEditingId(entry.id); setEditingText(entry.text) }}
+          onClick={() => { setEditingId(entry.id); setEditingText(entry.text); setEditingComment(entry.comment) }}
         >{'\u270E'}</button>
         <button
           type="button"
