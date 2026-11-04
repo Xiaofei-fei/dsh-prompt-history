@@ -10,12 +10,7 @@
  *
  * @module dsh-prompt-history/test/e2e/quote
  */
-import {
-  clearComposer, clearQuotes, clickPrimarySend, composerText, ensureSessionMessage,
-  lastUserNoteRow, normalizePrompt, openScratchSession, quoteCarriedByRow,
-  quoteFromUserRow, quoteState, sendFromComposer, sleep, userMessageCount,
-  waitForUserMessageCount,
-} from './harness.mjs'
+import { clearComposer, clearQuotes, clickPrimarySend, composerText, ensureSessionMessage, lastUserNoteRow, normalizePrompt, openScratchSession, quoteCarriedByRow, quoteFromUserRow, quoteState, sendFromComposer, sleep, userMessageCount, waitForIdle, waitForUserMessageCount } from './harness.mjs'
 
 /** Prompt typed after quoting; distinctive so the merged message is checkable. */
 const PROMPT = 'quote regression prompt 24680'
@@ -38,6 +33,11 @@ const PILL = /1\s*条注|1\s*note/i
  * @param check - the runner's assertion collector.
  */
 export async function quoteSuite(page, check) {
+  // A fresh page can land on the app's empty state (no session selected), and a
+  // previous suite's seeded turn may still be streaming; both leave no usable
+  // composer. Open a scratch session first, then wait for it to settle.
+  await openScratchSession(page)
+  await waitForIdle(page, 60_000)
   if (await userMessageCount(page) === 0) {
     await openScratchSession(page)
     await ensureSessionMessage(page)

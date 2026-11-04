@@ -477,6 +477,9 @@ export function sleep(ms) {
  */
 export async function selectUserRowText(page, options = {}) {
   const { fromEnd = false } = options
+  // The toolbar is not offered while a turn is submitting; waiting here is what
+  // makes the selection deterministic instead of a race with the seed send.
+  await waitForIdle(page, 30_000)
   const selected = await page.evaluate((pickLast) => {
     const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
     const ordered = pickLast ? [...rows].reverse() : rows
@@ -497,7 +500,17 @@ export async function selectUserRowText(page, options = {}) {
     document.dispatchEvent(new Event('selectionchange'))
     return (selection?.toString() ?? '').trim()
   }, fromEnd)
-  await sleep(700)
+  // The bar renders a frame after selectionchange; poll (re-dispatching) instead
+  // of assuming one fixed delay, which is how this suite used to fail with an
+  // empty label list while the selection itself was fine.
+  for (let i = 0; i < 12; i += 1) {
+    await sleep(300)
+    const shown = await page.evaluate(() => {
+      document.dispatchEvent(new Event('selectionchange'))
+      return document.querySelectorAll('.dsh-ph-toolbar button').length > 0
+    })
+    if (shown) break
+  }
   return selected
 }
 
@@ -507,13 +520,19 @@ export async function selectUserRowText(page, options = {}) {
  * @returns the toolbar labels and whether the quote button was found.
  */
 export async function clickQuoteAction(page) {
-  const buttons = await page.evaluate(() => {
-    const all = [...document.querySelectorAll('.dsh-ph-toolbar button')]
-    const labels = all.map((button) => (button.textContent ?? '').trim())
-    const quote = all.find((button) => /引用|Quote/.test((button.textContent ?? '')))
-    if (quote !== undefined) quote.click()
-    return { labels, clicked: quote !== undefined }
-  })
+  let buttons = { labels: [], clicked: false }
+  for (let i = 0; i < 10; i += 1) {
+    buttons = await page.evaluate(() => {
+      const all = [...document.querySelectorAll('.dsh-ph-toolbar button')]
+      const labels = all.map((button) => (button.textContent ?? '').trim())
+      const quote = all.find((button) => /引用|Quote/.test((button.textContent ?? '')))
+      if (quote !== undefined) quote.click()
+      return { labels, clicked: quote !== undefined }
+    })
+    if (buttons.clicked) break
+    await page.evaluate(() => { document.dispatchEvent(new Event('selectionchange')) })
+    await sleep(300)
+  }
   await sleep(1000)
   return buttons
 }
