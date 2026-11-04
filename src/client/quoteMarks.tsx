@@ -241,13 +241,29 @@ function draftCarries(payload: string): boolean {
   return composerText().indexOf(head) !== -1
 }
 
+/** The composer's primary send control, preferring the labelled send action. */
+function sendControl(card: Element): HTMLElement | null {
+  const controls: HTMLElement[] = []
+  for (const button of card.querySelectorAll<HTMLElement>('button')) {
+    for (const token of button.classList) {
+      if (token.endsWith('_primary')) {
+        controls.push(button)
+        break
+      }
+    }
+  }
+  if (controls.length === 0) return null
+  const labelled = controls.find((button) => /发送|send/i.test(button.getAttribute('aria-label') ?? ''))
+  return labelled ?? controls[0] ?? null
+}
+
 /**
- * Merge the queued quotes into the draft, then confirm the write landed.
+ * Write the queued quotes into the draft, without dropping the notes.
  *
  * insertText() reports success as soon as the span maps to a position, not
  * when the text is in the document (an empty replacement returns true too), so
- * the write is verified by reading the composer back. The notes are dropped
- * only after that check, never before it.
+ * the write is verified by reading the composer back. Clearing the notes is the
+ * caller's job: it happens only once the message is known to be on its way.
  *
  * @param sessionId - session whose notes are being sent.
  * @param actions - the composer's public input actions.
@@ -258,13 +274,13 @@ function injectQuotes(sessionId: string | undefined, actions: QuoteInsertActions
   if (phase !== 'plain') return false
   const payload = pendingPayload(sessionId)
   if (payload === null) return false
+  if (draftCarries(payload)) return true
   // insertText() refuses a span from a stale revision: retry once for a
   // keystroke that landed between the gesture and the write.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const span = actions.captureInsertion()
     if (!actions.insertText(payload, { start: 0, end: 0, draftRev: span.draftRev })) continue
     if (!draftCarries(payload)) continue
-    setEntries(sessionId, [])
     return true
   }
   // Nothing landed, so the card stays and the send goes out unchanged.
@@ -273,6 +289,89 @@ function injectQuotes(sessionId: string | undefined, actions: QuoteInsertActions
 
 /** True while a send taken over from the user's gesture is being replayed. */
 let quotingSend = false
+
+/** How many user bubbles the transcript currently renders. */
+function userRowCount(): number {
+  return document.querySelectorAll('[data-chat-flow-kind="user"]').length
+}
+
+/**
+ * Click the composer's send control *as it exists right now*.
+ *
+ * The control captured at gesture time goes stale when the composer re-renders
+ * between typing and Enter, and a detached button swallows the click without
+ * any host handler seeing it. Re-reading the card at replay time keeps the
+ * replay on a live control; note that this path never dispatches a synthetic
+ * MouseEvent, which the host's React onClick would not see either.
+ *
+ * @param card - the composer card the gesture belongs to.
+ * @returns true when a control was clicked.
+ */
+function replaySend(card: Element): boolean {
+  // The card itself can be replaced when the composer re-renders; fall back to
+  // the live one so the click never lands on a detached tree.
+  const host = card.isConnected ? card : document.querySelector(COMPOSER_CARD)
+  const control = host === null ? null : sendControl(host)
+  if (control === null) return false
+  quotingSend = true
+  try {
+    control.click()
+  } finally {
+    quotingSend = false
+  }
+  return true
+}
+
+/**
+ * Watch whether the submission was accepted, and only then drop the notes.
+ *
+ * A click is dispatched synchronously but the host may still refuse it (busy
+ * machine, uploads pending, a turn that started in between): the draft then
+ * keeps the payload and no message appears. The notes survive until the draft
+ * stops carrying the payload or a new user bubble shows up, so a refused send
+ * can be retried without losing either the note or the message. One extra
+ * replay covers a submit gate that was still closing on the first task.
+ *
+ * @param sessionId - session whose notes are being sent.
+ * @param payload - the blockquote text the draft carries.
+ * @param before - user bubble count before the send.
+ * @param card - the composer card the gesture belongs to.
+ */
+function confirmSend(
+  sessionId: string | undefined,
+  payload: string,
+  before: number,
+  card: Element,
+): void {
+  let settled = false
+  let timer = 0
+  let deadline = 0
+  const cleanup = (): void => {
+    if (timer !== 0) window.clearInterval(timer)
+    if (deadline !== 0) window.clearTimeout(deadline)
+  }
+  const settle = (sent: boolean): void => {
+    if (settled) return
+    settled = true
+    cleanup()
+    if (sent) setEntries(sessionId, [])
+  }
+  const check = (): void => {
+    if (settled) return
+    if (!draftCarries(payload) || userRowCount() > before) settle(true)
+  }
+  deadline = window.setTimeout(() => {
+    check()
+    if (settled) return
+    replaySend(card)
+    check()
+    if (settled) return
+    // The host refused both clicks: keep the notes (and the payload) so the
+    // user can try again; the next gesture sees the payload already in place.
+    settle(false)
+  }, 2500)
+  timer = window.setInterval(check, 120)
+}
 
 /**
  * Run the send ourselves, with an explicit order: write the notes, then submit.
@@ -286,26 +385,34 @@ let quotingSend = false
  *
  * @param sessionId - session whose notes are being sent.
  * @param live - composer facts captured when the gesture started.
- * @param control - the primary send control the click is replayed on.
+ * @param card - the composer card the gesture belongs to.
  */
 function sendWithQuotes(
   sessionId: string | undefined,
   live: { readonly phase: string; readonly actions: QuoteInsertActions },
-  control: HTMLElement,
+  card: Element,
 ): void {
-  quotingSend = true
-  try {
-    injectQuotes(sessionId, live.actions, live.phase)
-  } catch {
-    // A refused write must not swallow the message: the replay below still
-    // submits it, just without the notes.
+  const payload = pendingPayload(sessionId)
+  if (payload === null) {
+    replaySend(card)
+    return
   }
+  let injected = false
+  try {
+    injected = injectQuotes(sessionId, live.actions, live.phase)
+  } catch {
+    injected = false
+  }
+  if (!injected) {
+    // A refused write must not swallow the message: submit exactly what the
+    // user typed, keep the notes queued for the next attempt.
+    window.setTimeout(() => { replaySend(card) }, 0)
+    return
+  }
+  const before = userRowCount()
   window.setTimeout(() => {
-    try {
-      control.click()
-    } finally {
-      quotingSend = false
-    }
+    replaySend(card)
+    confirmSend(sessionId, payload, before, card)
   }, 0)
 }
 
@@ -506,13 +613,12 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
       if (pendingPayload(sessionId) === null) return
       const target = event.target instanceof Element ? event.target : null
       const card = target === null ? null : target.closest(COMPOSER_CARD)
-      const control = card === null ? undefined : sendControls(card)[0]
-      // No send control to replay means nothing safe to do here: leave the
-      // gesture to the host rather than swallowing the message.
-      if (control === undefined) return
+      // No send control means nothing to replay: leave the gesture to the host
+      // rather than swallowing the message.
+      if (card === null || sendControl(card) === null) return
       event.preventDefault()
       event.stopPropagation()
-      sendWithQuotes(sessionId, live, control as HTMLElement)
+      sendWithQuotes(sessionId, live, card)
     }
     const onClick = (event: MouseEvent): void => {
       if (quotingSend) return
@@ -521,10 +627,11 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
       if (live.phase !== 'plain' || pendingPayload(sessionId) === null) return
       const target = event.target instanceof Element ? event.target : null
       const button = target === null ? null : target.closest('button')
-      if (button === null) return
+      const card = target === null ? null : target.closest(COMPOSER_CARD)
+      if (button === null || card === null) return
       event.preventDefault()
       event.stopPropagation()
-      sendWithQuotes(sessionId, live, button)
+      sendWithQuotes(sessionId, live, card)
     }
     document.addEventListener('keydown', onKeyDown, true)
     document.addEventListener('click', onClick, true)
