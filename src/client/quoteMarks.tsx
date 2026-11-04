@@ -444,13 +444,29 @@ const QUOTE_CSS = [
   '.dsh-ph-quote-edit{width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.15));border-radius:8px;padding:4px 6px;font:12px/1.5 system-ui,sans-serif;color:var(--dsw-alias-label-primary,#1f2328);background:var(--dsw-alias-bg-layer-2,#f6f8fa);}',
   '.dsh-ph-quote-icon{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#8b949e);cursor:pointer;font-size:13px;padding:2px 4px;border-radius:6px;line-height:1.2;}',
   '.dsh-ph-quote-icon:hover{background:var(--dsw-alias-bg-layer-3,rgba(0,0,0,.06));color:var(--dsw-alias-label-primary,#1f2328);}',
-  '.dsh-ph-quote-count{pointer-events:auto;margin-top:6px;display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));background:var(--dsw-specific-menu,#fff);color:var(--dsw-alias-label-secondary,#57606a);font:12px system-ui,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.06);}',
-  '.dsh-ph-quote-count:hover{background:var(--dsw-alias-bg-layer-3,#f0f2f5);}',
+  // Same treatment as the sent-message pill: a large, opaque, primary-coloured
+  // chip with a tinted icon disc, so the queued quotes are impossible to miss
+  // while writing the prompt.
+  '.dsh-ph-quote-count{pointer-events:auto;margin-top:6px;display:inline-flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 18%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 7%,var(--dsw-alias-bg-layer-1,#fff));color:var(--dsw-alias-label-primary,#1f2328);font:600 13px/20px system-ui,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.08),0 2px 10px color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 10%,transparent);transition:background .15s,border-color .15s,box-shadow .15s;}',
+  '.dsh-ph-quote-count:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 12%,var(--dsw-alias-bg-layer-1,#fff));border-color:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 32%,transparent);}',
+  '.dsh-ph-quote-count-disc{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--dsw-static-blue-900,#0e3074) 16%,transparent);color:var(--dsw-static-blue-900,#0e3074);}',
+  '.dsh-ph-quote-count-x{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:50%;color:var(--dsw-alias-label-tertiary,#8b949e);}',
+  '.dsh-ph-quote-count-x:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 12%,transparent);color:var(--dsw-alias-label-primary,#1f2328);}',
   '.dsh-ph-quote-notes-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px;max-width:100%;}',
-  '.dsh-ph-quote-notes{display:inline-flex;align-items:center;gap:6px;max-width:100%;box-sizing:border-box;padding:4px 12px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));background:color-mix(in srgb,var(--dsw-alias-bg-base,#fff) 86%,transparent);color:var(--dsw-alias-label-secondary,#57606a);font:500 12px/18px system-ui,sans-serif;white-space:normal;cursor:pointer;text-align:left;}',
-  '.dsh-ph-quote-notes:hover{background:var(--dsw-alias-bg-layer-2,#f3f4f6);color:var(--dsw-alias-label-primary,#1f2328);}',
-  '.dsh-ph-quote-notes-icon{flex:0 0 auto;width:13px;height:13px;display:block;}',
+  // The sent-message pill has to be noticed, not just present: a bigger target,
+  // the primary label colour instead of the secondary one, an icon in its own
+  // tinted disc, a trailing chevron and a shadow that lifts it off the bubble.
+  // Every colour is derived with color-mix from semantic tokens, so it holds in
+  // light and dark themes without a hard-coded accent.
+  '.dsh-ph-quote-notes{display:inline-flex;align-items:center;gap:8px;max-width:100%;box-sizing:border-box;padding:6px 12px 6px 8px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 18%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 7%,var(--dsw-alias-bg-layer-1,#fff));color:var(--dsw-alias-label-primary,#1f2328);font:600 13px/20px system-ui,sans-serif;white-space:normal;cursor:pointer;text-align:left;box-shadow:0 1px 2px rgba(0,0,0,.08),0 2px 10px color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 10%,transparent);transition:background .15s,border-color .15s,box-shadow .15s;}',
+  '.dsh-ph-quote-notes:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 12%,var(--dsw-alias-bg-layer-1,#fff));border-color:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 32%,transparent);box-shadow:0 2px 4px rgba(0,0,0,.10),0 4px 16px color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 14%,transparent);}',
+  '.dsh-ph-quote-notes:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 55%,transparent);outline-offset:2px;}',
+  '.dsh-ph-quote-notes[aria-expanded="true"]{background:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 13%,var(--dsw-alias-bg-layer-1,#fff));border-color:color-mix(in srgb,var(--dsw-alias-label-primary,#1f2328) 34%,transparent);}',
+  '.dsh-ph-quote-notes-disc{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--dsw-static-blue-900,#0e3074) 16%,transparent);color:var(--dsw-static-blue-900,#0e3074);}',
+  '.dsh-ph-quote-notes-icon{display:block;width:14px;height:14px;}',
   '.dsh-ph-quote-notes-text{min-width:0;white-space:nowrap;}',
+  '.dsh-ph-quote-notes-chevron{flex:0 0 auto;font-size:11px;line-height:1;color:var(--dsw-alias-label-secondary,#61666b);transition:transform .15s;}',
+  '.dsh-ph-quote-notes[aria-expanded="true"] .dsh-ph-quote-notes-chevron{transform:rotate(180deg);}',
   '.dsh-ph-quote-notes-list{display:flex;flex-direction:column;gap:6px;max-width:100%;box-sizing:border-box;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.1));background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2328);font:12px/1.6 system-ui,sans-serif;white-space:normal;word-break:break-word;}',
   '.dsh-ph-quote-notes-item{display:flex;gap:6px;align-items:flex-start;}',
   '.dsh-ph-quote-notes-no{flex:0 0 auto;color:var(--dsw-alias-label-tertiary,#8b949e);font-variant-numeric:tabular-nums;}',
@@ -741,9 +757,15 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
         onMouseLeave={hideCardSoon}
         onClick={() => setPinned((value) => !value)}
       >
-        {entries.length + ' ' + T('quote.count')}
+        <span className="dsh-ph-quote-count-disc" aria-hidden="true">
+          <svg className="dsh-ph-quote-notes-icon" viewBox="0 0 16 16">
+            <path d="M2.7 3.5h10.6v7.1H7.5L4.3 13.3v-2.7H2.7z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+            <path d="M5.1 6.1h5.8M5.1 8.2h3.9" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span>{entries.length + ' ' + T('quote.count')}</span>
         <span
-          className="dsh-ph-quote-x"
+          className="dsh-ph-quote-count-x"
           role="button"
           title={T('quote.clear')}
           onClick={(event) => {
@@ -871,17 +893,21 @@ export function QuoteNotesChip({ node }: QuoteNotesChipProps): ReactElement {
         type="button"
         className="dsh-ph-quote-notes"
         title={title}
+        aria-expanded={open}
         onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
           setOpen((value) => !value)
         }}
       >
-        <svg className="dsh-ph-quote-notes-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M2.7 3.5h10.6v7.1H7.5L4.3 13.3v-2.7H2.7z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-          <path d="M5.1 6.1h5.8M5.1 8.2h3.9" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-        </svg>
+        <span className="dsh-ph-quote-notes-disc" aria-hidden="true">
+          <svg className="dsh-ph-quote-notes-icon" viewBox="0 0 16 16">
+            <path d="M2.7 3.5h10.6v7.1H7.5L4.3 13.3v-2.7H2.7z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+            <path d="M5.1 6.1h5.8M5.1 8.2h3.9" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+          </svg>
+        </span>
         <span className="dsh-ph-quote-notes-text">{label}</span>
+        <span className="dsh-ph-quote-notes-chevron" aria-hidden="true">▾</span>
       </button>
       {open && texts.length > 0
         ? (
