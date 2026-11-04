@@ -12,17 +12,19 @@
  * - The draft stays empty. On the send gesture itself (Enter inside the
  *   composer, or a click on the send button) a capture listener cancels that
  *   gesture, writes the quotes through the composer's public input actions and
- *   then clicks the primary send control one task later, so the write and the
- *   submit never race inside one event.
+ *   then calls the composer's public submit action one task later, so the
+ *   write and the submit never race inside one event. No host method is
+ *   replaced and no private member is read.
  * - In the transcript, the leading "> ..." blocks of a sent user message are
  *   rendered as a "N 条注释" pill (a user-text rule plus a node renderer)
  *   instead of raw blockquote text.
  *
- * The write uses captureInsertion()/insertText() only; insertText() reports
- * success as soon as the span maps, so the composer is read back to confirm the
- * text really landed. A refused or unconfirmed write keeps the notes and still
- * sends the message, instead of letting either the message or the quotes
- * vanish.
+ * The write uses captureInsertion()/insertText(), with setDraft as a fallback;
+ * insertText() reports success as soon as the span maps, so the composer is read
+ * back to confirm the text really landed. The notes are cleared only once the
+ * draft stops carrying the payload — proof the message left the composer — so a
+ * send that never happens leaves them queued for a retry instead of eating
+ * them.
  *
  * @module dsh-prompt-history/client/quoteMarks
  */
@@ -32,6 +34,7 @@ import { createPortal } from 'react-dom'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { COMPOSER_CARD } from './editor.ts'
 import { scheduleFrame } from './frame.ts'
+import { formatQuote } from './quoteContext.ts'
 import { T } from './i18n.ts'
 
 /** Where in the transcript a quote came from (element + text offsets). */
@@ -54,6 +57,12 @@ export interface QuoteEntry {
   readonly text: string
   /** Transcript anchor for the badge, null when the quote came from elsewhere. */
   readonly anchor: QuoteAnchor | null
+  /** Opening code fence captured with the selection, null for prose. */
+  readonly fence: string | null
+  /** The user's comment on the quote, '' when there is none. */
+  readonly comment: string
+  /** Whether the formatted block carries the reply-per-quote instruction. */
+  readonly perItem: boolean
 }
 
 /** One session's quote list. */
@@ -124,10 +133,19 @@ export function addQuoteEntry(
   sessionId: string | undefined,
   text: string,
   anchor: QuoteAnchor | null,
+  extras?: { readonly fence?: string | null; readonly comment?: string; readonly perItem?: boolean },
 ): QuoteEntry {
   const store = storeFor(sessionId)
   store.seq += 1
-  const entry: QuoteEntry = { id: store.seq, n: store.entries.length + 1, text, anchor }
+  const entry: QuoteEntry = {
+    id: store.seq,
+    n: store.entries.length + 1,
+    text,
+    anchor,
+    fence: extras?.fence ?? null,
+    comment: extras?.comment ?? '',
+    perItem: extras?.perItem === true,
+  }
   store.entries = [...store.entries, entry]
   emit(store)
   return entry
@@ -148,15 +166,24 @@ export function editQuoteEntry(sessionId: string | undefined, entry: QuoteEntry,
   setEntries(sessionId, quoteEntries(sessionId).map((item) => item.id === entry.id ? { ...item, text } : item))
 }
 
-/** One quote as a markdown blockquote (each line prefixed with '> '). */
-function blockquote(text: string): string {
-  return '> ' + text.replace(/\n/g, '\n> ')
+/**
+ * One quote as the markdown block the message carries.
+ *
+ * The formatter lives in quoteContext.ts: a quote can carry a comment, its
+ * source turn and a code fence, and the sent message must keep exactly the
+ * shape the composer used before quotes moved into this card.
+ *
+ * @param entry - the queued quote.
+ * @returns the formatted block.
+ */
+function blockOf(entry: QuoteEntry): string {
+  return formatQuote({ text: entry.text, row: null, fence: entry.fence }, entry.comment, entry.perItem)
 }
 
 /** The draft prefix a message gets: every quote, blocks separated by a blank line. */
 export function quotePayload(entries: readonly QuoteEntry[]): string {
   let payload = ''
-  for (const entry of entries) payload += blockquote(entry.text) + '\n\n'
+  for (const entry of entries) payload += blockOf(entry) + '\n\n'
   return payload
 }
 
@@ -172,6 +199,10 @@ export interface QuoteInsertActions {
    * @returns false when the draft moved on or submission locked the editor.
    */
   insertText(text: string, span: { readonly start: number; readonly end: number; readonly draftRev: number }): boolean
+  /** Replace the whole draft (fallback when a span write is refused). */
+  setDraft?(text: string): void
+  /** The composer's own send action (the button/Enter submission path). */
+  submit?(): void
 }
 
 /** The leading blockquote text a send should carry, or null when none is queued. */
@@ -241,75 +272,103 @@ function draftCarries(payload: string): boolean {
   return composerText().indexOf(head) !== -1
 }
 
+/** How long a sent message is watched for before the notes are kept. */
+const DELIVERY_TIMEOUT = 2000
+/** How often that watch re-reads the composer. */
+const DELIVERY_POLL = 80
+
+/** The composer facts a taken-over send needs. */
+interface LiveSendFacts {
+  /** Draft text when the gesture started (the setDraft fallback base). */
+  readonly draft: string
+  /** Composer machine phase; only 'plain' accepts a draft write. */
+  readonly phase: string
+  /** The composer's public action face. */
+  readonly actions: QuoteInsertActions
+}
+
 /**
- * Merge the queued quotes into the draft, then confirm the write landed.
+ * Write the queued quotes into the draft and confirm they are really there.
  *
  * insertText() reports success as soon as the span maps to a position, not
  * when the text is in the document (an empty replacement returns true too), so
- * the write is verified by reading the composer back. The notes are dropped
- * only after that check, never before it.
+ * every write is read back from the composer. setDraft is the fallback; it
+ * replaces the draft, so it is only used after a refused insert and only with
+ * the text captured when the gesture started.
  *
- * @param sessionId - session whose notes are being sent.
- * @param actions - the composer's public input actions.
- * @param phase - composer machine phase; only 'plain' accepts a draft write.
- * @returns true when the quotes are in the draft.
+ * @param payload - the blockquotes the send should carry.
+ * @param live - composer facts captured when the gesture started.
+ * @returns true when the composer renders the quotes.
  */
-function injectQuotes(sessionId: string | undefined, actions: QuoteInsertActions, phase: string): boolean {
-  if (phase !== 'plain') return false
-  const payload = pendingPayload(sessionId)
-  if (payload === null) return false
-  // insertText() refuses a span from a stale revision: retry once for a
-  // keystroke that landed between the gesture and the write.
+function writePayload(payload: string, live: LiveSendFacts): boolean {
+  if (draftCarries(payload)) return true
+  const { actions } = live
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const span = actions.captureInsertion()
     if (!actions.insertText(payload, { start: 0, end: 0, draftRev: span.draftRev })) continue
-    if (!draftCarries(payload)) continue
-    setEntries(sessionId, [])
-    return true
+    if (draftCarries(payload)) return true
   }
-  // Nothing landed, so the card stays and the send goes out unchanged.
+  if (typeof actions.setDraft === 'function') {
+    try {
+      actions.setDraft(payload + live.draft)
+    } catch {
+      return false
+    }
+    return draftCarries(payload)
+  }
   return false
 }
 
-/** True while a send taken over from the user's gesture is being replayed. */
-let quotingSend = false
+/**
+ * Drop the notes once the message has actually left the composer.
+ *
+ * A message being sent clears the composer; the payload disappearing from the
+ * draft is therefore the proof that the send happened. Until then the notes are
+ * kept, so a send that never happens can be retried without losing them.
+ *
+ * @param sessionId - session whose notes are watched.
+ * @param payload - the text the sent message must have carried.
+ */
+function watchDelivery(sessionId: string | undefined, payload: string): void {
+  const started = Date.now()
+  const tick = (): void => {
+    if (!draftCarries(payload)) {
+      setEntries(sessionId, [])
+      return
+    }
+    if (Date.now() - started > DELIVERY_TIMEOUT) return
+    window.setTimeout(tick, DELIVERY_POLL)
+  }
+  window.setTimeout(tick, DELIVERY_POLL)
+}
 
 /**
- * Run the send ourselves, with an explicit order: write the notes, then submit.
+ * Complete a send the plugin has taken over: write the quotes, then submit
+ * through the composer's own public submit action.
  *
- * The host's Enter handler already calls preventDefault() and submits inside
- * the same keydown, so a capture-phase write races a handler that reads its
- * own copy of the composer state; the send button submits in the bubble phase.
- * Cancelling the gesture (the caller does that), writing the notes and
- * clicking the primary send control one task later makes the order explicit
- * without replacing any shell method.
+ * The write and the submit are separated by one task because the host submits
+ * the published composer state; calling submit in the same event that changed
+ * the draft would send the state from before the write. Nothing here replaces a
+ * host method: inputActions.submit is the action face the composer itself hands
+ * to plugins.
  *
  * @param sessionId - session whose notes are being sent.
  * @param live - composer facts captured when the gesture started.
- * @param control - the primary send control the click is replayed on.
  */
-function sendWithQuotes(
-  sessionId: string | undefined,
-  live: { readonly phase: string; readonly actions: QuoteInsertActions },
-  control: HTMLElement,
-): void {
-  quotingSend = true
-  try {
-    injectQuotes(sessionId, live.actions, live.phase)
-  } catch {
-    // A refused write must not swallow the message: the replay below still
-    // submits it, just without the notes.
-  }
+function sendQueuedQuotes(sessionId: string | undefined, live: LiveSendFacts): void {
+  const payload = pendingPayload(sessionId)
+  if (payload === null) return
   window.setTimeout(() => {
     try {
-      control.click()
-    } finally {
-      quotingSend = false
+      if (!writePayload(payload, live)) return
+      const submit = live.actions.submit
+      if (typeof submit === 'function') submit()
+      watchDelivery(sessionId, payload)
+    } catch {
+      // A failed send keeps the notes queued; nothing is eaten silently.
     }
   }, 0)
 }
-
-/** Text offset of a DOM point inside its closest element (for anchors). */
 function textOffsetIn(element: Element, node: Node, offset: number): number {
   let total = 0
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
@@ -484,9 +543,10 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
   sendRef.current = { draft, phase, actions: inputActions }
 
   // Take the send gesture over, but only while notes are queued: cancel it,
-  // write the notes through the composer's public input actions, then replay
-  // the primary send control one task later. With no notes the listeners return
-  // before touching anything, so an ordinary send never enters plugin code.
+  // write the notes through the composer's public input actions, then call the
+  // composer's own submit action one task later. With no notes the listeners
+  // return before touching anything, so an ordinary send never enters plugin
+  // code, and a send is only taken over when that public action is available.
   useEffect(() => {
     if (entries.length === 0) return
     // A side chat (or any second composer) renders its own overlay; only the
@@ -498,33 +558,28 @@ export function QuoteOverlay({ sessionId, draft, phase, inputActions }: QuoteOve
       return slot !== null && card !== null && slot.closest(COMPOSER_CARD) === card
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (quotingSend || !isSubmitEnter(event) || !owns(event)) return
+      if (!isSubmitEnter(event) || !owns(event)) return
       const live = sendRef.current
       // An empty draft is not a send: Enter there would submit nothing, and the
       // same control is the stop button while a turn is running.
       if (live.phase !== 'plain' || live.draft.trim() === '') return
       if (pendingPayload(sessionId) === null) return
-      const target = event.target instanceof Element ? event.target : null
-      const card = target === null ? null : target.closest(COMPOSER_CARD)
-      const control = card === null ? undefined : sendControls(card)[0]
-      // No send control to replay means nothing safe to do here: leave the
-      // gesture to the host rather than swallowing the message.
-      if (control === undefined) return
+      // Only take the gesture over when the send can be completed through the
+      // composer's public submit action; otherwise leave it to the host rather
+      // than swallowing the message.
+      if (typeof live.actions.submit !== 'function') return
       event.preventDefault()
       event.stopPropagation()
-      sendWithQuotes(sessionId, live, control as HTMLElement)
+      sendQueuedQuotes(sessionId, live)
     }
     const onClick = (event: MouseEvent): void => {
-      if (quotingSend) return
       const live = sendRef.current
       if (!isSubmitClick(event, live.draft) || !owns(event)) return
       if (live.phase !== 'plain' || pendingPayload(sessionId) === null) return
-      const target = event.target instanceof Element ? event.target : null
-      const button = target === null ? null : target.closest('button')
-      if (button === null) return
+      if (typeof live.actions.submit !== 'function') return
       event.preventDefault()
       event.stopPropagation()
-      sendWithQuotes(sessionId, live, button)
+      sendQueuedQuotes(sessionId, live)
     }
     document.addEventListener('keydown', onKeyDown, true)
     document.addEventListener('click', onClick, true)
@@ -729,6 +784,11 @@ export interface QuoteNotesRule {
   match: (text: string, from: number) => QuoteNotesCandidate | undefined
 }
 
+/** Drop the ❝ / ❞ markers the quote formatter adds, for display only. */
+function stripMarkers(line: string): string {
+  return line.startsWith('❝ ') || line.startsWith('❞ ') ? line.slice(2) : line
+}
+
 /** Read the run of Markdown blockquote lines a sent message starts with. */
 function matchQuotedRun(text: string): QuoteNotesCandidate | undefined {
   if (!text.startsWith('> ')) return undefined
@@ -743,7 +803,7 @@ function matchQuotedRun(text: string): QuoteNotesCandidate | undefined {
       const lineEnd = text.indexOf('\n', cursor)
       const stop = lineEnd === -1 ? text.length : lineEnd
       const line = text.slice(cursor, stop)
-      if (line.startsWith('> ')) lines.push(line.slice(2))
+      if (line.startsWith('> ')) lines.push(stripMarkers(line.slice(2)))
       else if (line === '>') lines.push('')
       else break
       blockEnd = stop

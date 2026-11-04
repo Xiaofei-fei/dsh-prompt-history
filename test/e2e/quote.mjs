@@ -12,7 +12,7 @@
  */
 import {
   clearComposer, clearQuotes, clickPrimarySend, composerText, ensureSessionMessage,
-  lastUserNoteRow, normalizePrompt, openFirstSession, quoteCarriedByRow,
+  lastUserNoteRow, normalizePrompt, openScratchSession, quoteCarriedByRow,
   quoteFromUserRow, quoteState, sendFromComposer, sleep, userMessageCount,
   waitForUserMessageCount,
 } from './harness.mjs'
@@ -39,7 +39,7 @@ const PILL = /1\s*条注|1\s*note/i
  */
 export async function quoteSuite(page, check) {
   if (await userMessageCount(page) === 0) {
-    await openFirstSession(page)
+    await openScratchSession(page)
     await ensureSessionMessage(page)
   }
   await clearQuotes(page)

@@ -57,11 +57,14 @@ const SEAM_KEY = 'dsh-prompt-history.testSeam'
 /**
  * Base prefs every suite starts from.
  *
- * The live next-prompt prediction is off on purpose: it needs a model round-trip,
- * so its timing is not reproducible, and when it returns nothing the plugin
+ * Both live model features are off on purpose: they need a model round-trip, so
+ * their timing is not reproducible, and when one returns nothing the plugin
  * legitimately clears the overlay — which would erase the seam's overlay in the
  * middle of a geometry check. The overlay mechanics are exercised through the
  * seam instead, which is the same paint path with a deterministic trigger.
+ * `aiCompletion` is off for the same reason on the ghost path: the history
+ * completion checks read the ghost immediately after typing, and a continuation
+ * arriving mid-check would swap the suffix under them.
  */
 export const BASE_PREFS = {
   version: 3,
@@ -69,8 +72,8 @@ export const BASE_PREFS = {
     copyMode: 'toolbar',
     rightClickPaste: true,
     globalHistory: false,
-    tocVisible: true,
     promptCompletion: true,
+    aiCompletion: false,
     contextSuggest: false,
     sideChat: true,
     writeGuard: true,
@@ -190,7 +193,7 @@ export async function openApp(browser, prefs = BASE_PREFS) {
   page.on('pageerror', (error) => errors.push(`pageerror: ${String(error).slice(0, 160)}`))
   // Host-transport noise (the gateway hiccuping while a second server shares the
   // same profile) is not a plugin error; only the app's own failures count.
-  const HOST_NOISE = /404|Failed to load resource|Failed to fetch|gateway\/internal|dynamicCordisRunner|cordis-client-runner|client api:/
+  const HOST_NOISE = /404|Failed to load resource|Failed to fetch|gateway\/internal|dynamicCordisRunner|cordis-client-runner|client api:|remote\.mux|Connection closed before receiving a handshake response/
   page.on('console', (message) => {
     if (message.type() === 'error' && !HOST_NOISE.test(message.text())) {
       errors.push(message.text().slice(0, 160))
@@ -236,32 +239,120 @@ export async function dismissDialog(page) {
  * @param page - the app page.
  * @returns a sample of the first user row's text, or null.
  */
-export async function openFirstSession(page) {
+/**
+ * Pages that already own a scratch session (one per page, not one per call).
+ */
+const scratchOwners = new WeakSet()
+
+/**
+ * Open a fresh scratch session for this page.
+ *
+ * Tests used to click the FIRST session row, which in the real profile is the
+ * user's own most recent conversation — the suite then typed prompts into it
+ * (that is how a test seed ended up as a user message in their chat). A scratch
+ * session keeps every keystroke away from real conversations.
+ *
+ * One scratch session per page: repeat calls are no-ops.
+ * @param page - the app page.
+ * @returns how the session was created, or null when it already existed.
+ */
+export async function openScratchSession(page) {
+  if (scratchOwners.has(page)) return null
   await page.evaluate(() => {
     const button = document.querySelector('button[aria-label="打开侧边栏"]')
     if (button !== null) button.click()
   })
-  await sleep(2000)
-  await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('[class*="sessionRow"]')]
-    const row = rows.find((candidate) => {
-      const text = (candidate.textContent ?? '').trim()
-      return text.length > 3 && !/新会话|展开其余/.test(text)
-    })
-    if (row !== undefined) row.click()
+  await sleep(1200)
+  const created = await page.evaluate(() => {
+    const byAria = document.querySelector('button[aria-label="新建会话"]')
+    if (byAria !== null) { byAria.click(); return 'button' }
+    const row = [...document.querySelectorAll('[role="treeitem"]')]
+      .find((candidate) => /新会话/.test((candidate.textContent ?? '').slice(0, 12)))
+    if (row !== undefined) { row.click(); return 'treeitem' }
+    return null
   })
-  for (let i = 0; i < 14; i += 1) {
-    await sleep(1200)
-    const count = await page.evaluate(() => document.querySelectorAll('[data-chat-flow-kind="user"]').length)
-    if (count > 0) break
-  }
+  await sleep(1500)
   await page.keyboard.press('Escape')
   await sleep(600)
-  return page.evaluate(() => {
-    const rows = [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
-    const last = rows[rows.length - 1]
-    return last === undefined ? null : (last.textContent ?? '').trim()
-  })
+  // Creating a session can silently fail when the sidebar is in an unexpected
+  // state (a collapsed rail, a modal, a slow boot). Without this check the whole
+  // suite then runs against a page with no composer and every later assertion
+  // fails with a confusing null.
+  let ready = await page.evaluate(() => document.querySelector('[data-composer-input]') !== null)
+  for (let attempt = 0; !ready && attempt < 3; attempt += 1) {
+    await page.evaluate(() => {
+      const open = document.querySelector('button[aria-label="打开侧边栏"]')
+      if (open !== null) open.click()
+    })
+    await sleep(1200)
+    const retry = await page.evaluate(() => {
+      const byAria = document.querySelector('button[aria-label="新建会话"]')
+      if (byAria !== null) { byAria.click(); return 'button' }
+      const row = [...document.querySelectorAll('[role="treeitem"]')]
+        .find((candidate) => /新会话/.test((candidate.textContent ?? '').slice(0, 12)))
+      if (row !== undefined) { row.click(); return 'treeitem' }
+      return null
+    })
+    await sleep(1500)
+    await page.keyboard.press('Escape')
+    await sleep(500)
+    ready = await page.evaluate(() => document.querySelector('[data-composer-input]') !== null)
+    if (ready && created === null) created = retry
+  }
+  if (!ready) throw new Error('openScratchSession: no composer after creating a session')
+  scratchOwners.add(page)
+  return created
+}
+
+/**
+ * Open the first existing session. Kept for callers that genuinely need history;
+ * the suites use {@link openScratchSession} so they never write into a real chat.
+ * @param page - the app page.
+ * @returns the newest user row text, or null.
+ */
+/**
+ * Send one prompt so the session is not empty.
+ *
+ * A freshly created scratch session has no rows: the selection toolbar has
+ * nothing to select, and a "fork with context" has no context to fork. Seeding a
+ * message first is what makes those checks meaningful.
+ * @param page - the app page.
+ * @param text - the prompt to send.
+ * @returns true when a user row carrying the text appeared.
+ */
+export async function seedComposerMessage(page, text) {
+  await page.evaluate(() => { const el = document.querySelector('[data-composer-input]'); if (el) el.focus() })
+  await page.keyboard.type(text)
+  await page.keyboard.press('Enter')
+  const deadline = Date.now() + 40_000
+  while (Date.now() < deadline) {
+    await sleep(600)
+    const landed = await page.evaluate((needle) => [...document.querySelectorAll('[data-chat-flow-kind="user"]')]
+      .some((row) => (row.textContent ?? '').includes(needle)), text)
+    if (landed) { await sleep(800); return true }
+  }
+  return false
+}
+
+/**
+ * Wait until the conversation leaves its busy phases.
+ *
+ * Seeding a message starts a turn; forking a session or measuring the composer
+ * while that turn is in flight is refused or unreliable, so callers wait here.
+ * @param page - the app page.
+ * @param timeoutMs - how long to wait.
+ * @returns true when no busy phase remained.
+ */
+export async function waitForIdle(page, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const busy = await page.evaluate(() => [...document.querySelectorAll('[data-phase]')]
+      .map((node) => node.getAttribute('data-phase') ?? '')
+      .some((phase) => /submit|adjudicat|stream|running/i.test(phase)))
+    if (!busy) return true
+    await sleep(500)
+  }
+  return false
 }
 
 /** Clear the composer (select all inside it, then Backspace). */
@@ -428,17 +519,46 @@ export async function clickQuoteAction(page) {
 }
 
 /**
- * Quote the selected message text the way a user does: select, then press the
- * toolbar's quote action.
+ * Finish the quote comment box the toolbar action opens (quote + comment are
+ * one block). An empty panel keeps the comment empty, which is the one-click
+ * path.
  * @param page - the app page.
- * @param options - forwarded to {@link selectUserRowText}.
- * @returns the selected text and the toolbar labels.
+ * @param comment - comment to type; '' leaves it empty.
+ * @returns whether the panel was there and got submitted.
+ */
+export async function confirmQuoteComment(page, comment = '') {
+  const present = await page.evaluate(() => document.querySelector('.dsh-ph-qc') !== null)
+  if (!present) return { present: false, submitted: false }
+  if (comment !== '') {
+    await page.click('.dsh-ph-qc textarea')
+    await page.keyboard.type(comment)
+    await sleep(150)
+  }
+  const submitted = await page.evaluate(() => {
+    const button = document.querySelector('.dsh-ph-qc [data-primary="1"]')
+    if (button === null) return false
+    button.click()
+    return true
+  })
+  await sleep(700)
+  return { present: true, submitted }
+}
+
+/**
+ * Quote the selected message text the way a user does: select, press the
+ * toolbar's quote action, then confirm its comment box (empty by default).
+ * @param page - the app page.
+ * @param options - forwarded to {@link selectUserRowText}; `comment` fills the
+ *   comment box.
+ * @returns the selected text, the toolbar labels and the comment used.
  */
 export async function quoteFromUserRow(page, options = {}) {
   const selected = await selectUserRowText(page, options)
-  if (selected === null) return { selected: null, labels: [], clicked: false }
+  if (selected === null) return { selected: null, labels: [], clicked: false, comment: '' }
   const { labels, clicked } = await clickQuoteAction(page)
-  return { selected, labels, clicked }
+  const comment = typeof options.comment === 'string' ? options.comment : ''
+  await confirmQuoteComment(page, comment)
+  return { selected, labels, clicked, comment }
 }
 
 /** Read the composer-adjacent quote UI state. */

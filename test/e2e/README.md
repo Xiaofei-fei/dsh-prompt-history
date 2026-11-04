@@ -30,6 +30,7 @@ come back unnoticed.
 | `DSH_E2E_DSH_BIN` | `dsh` | the DSH CLI to spawn |
 | `DSH_E2E_SECRET` | read from `~/.dsh/.credentials.yaml` | browser-session secret (the cookie signer) |
 | `DSH_E2E_HEADFUL` | — | `1` to watch the run |
+| `DSH_E2E_AI` | — | `1` to run the model-backed AI-continuation suite |
 
 The suite needs the same machine as a working DSH profile: it signs the
 `dsh-auth-*` cookie with the profile's own browser-session secret (read from the
@@ -42,3 +43,12 @@ occlusion checks slow and flaky. So the plugin exposes its overlay controls on
 `window.__dshPhTest` **only when** `localStorage['dsh-prompt-history.testSeam'] === '1'`
 — the harness sets that key on every page it opens. Nothing is exposed for a
 normal user, and the seam has no effect on product behaviour.
+
+## Known flaky checks
+
+`side chat / side-chat panel opens and starts a forked thread` passes when the
+suite runs alone (4/4) but can fail inside a full run: the fork needs the host to
+create a session, and in a long run the scratch profile is busy enough that the
+call is refused. The panel itself, its composer and the off-state regression all
+still pass. Tracked as a harness-isolation issue (the harness spawns the real
+`~/.dsh` profile, so sessions and forks accumulate across runs).

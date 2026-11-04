@@ -8,7 +8,7 @@
  * @module dsh-prompt-history/test/e2e/overlay
  */
 import {
-  clearComposer, composerText, focusComposer, hostIdentity, normalizePrompt, openFirstSession,
+  clearComposer, composerText, focusComposer, hostIdentity, normalizePrompt, openScratchSession,
   overlayGeometry, seamHideSuggestion, seamShowSuggestion, sleep,
 } from './harness.mjs'
 
@@ -22,7 +22,7 @@ const TOLERANCE = 2
 export async function overlaySuite(page, check) {
   // The composer renders before the session finishes opening; keys typed into a
   // composer whose session is still loading are swallowed, so open one first.
-  await openFirstSession(page)
+  await openScratchSession(page)
   await focusComposer(page)
   await clearComposer(page)
 
@@ -324,6 +324,136 @@ export async function overlaySuite(page, check) {
     idle !== null && idle.mutations === 0 && idle.stillPresent === true,
     idle)
   await seamHideSuggestion(page)
+
+  // 12) Issue #15 ①: only one composer overlay may be on screen. Both are fixed
+  //     layers at the same z-index anchored to the same point, so the two dim texts
+  //     used to weave together in the race where the draft goes empty before the
+  //     completion sync re-runs. An empty contenteditable has no caret rect (no text
+  //     node), so the race is driven on a controlled textarea, where both entry
+  //     points are reachable in the same state.
+  const exclusive = await page.evaluate(() => {
+    const seam = window.__dshPhTest
+    if (seam === undefined) return null
+    const area = document.createElement('textarea')
+    area.style.cssText = 'position:fixed;left:40px;top:120px;width:320px;height:72px;'
+    document.body.appendChild(area)
+    area.focus()
+    // ghost first, then a prediction on the same empty field
+    const ghostShown = seam.showGhost('后缀', area) === true
+    const ghostBefore = seam.ghostVisible()
+    const suggestionShown = seam.showSuggestion('互斥校验预测', '按 Tab 键接受', area, { hidePlaceholder: false }) === true
+    const afterSuggestion = { suggestion: seam.suggestionVisible(), ghost: seam.ghostVisible() }
+    // and the other direction: a ghost claims the field back from the prediction
+    const ghostAgain = seam.showGhost('后缀二', area) === true
+    const afterGhost = { suggestion: seam.suggestionVisible(), ghost: seam.ghostVisible() }
+    seam.hideSuggestion()
+    seam.hideGhost()
+    area.remove()
+    return { ghostShown, ghostBefore, suggestionShown, afterSuggestion, ghostAgain, afterGhost }
+  })
+  check('only one composer overlay is on screen at a time',
+    exclusive !== null
+      && exclusive.ghostShown && exclusive.ghostBefore
+      && exclusive.suggestionShown
+      && exclusive.afterSuggestion.suggestion && !exclusive.afterSuggestion.ghost
+      && exclusive.ghostAgain
+      && exclusive.afterGhost.ghost && !exclusive.afterGhost.suggestion,
+    exclusive)
+
+  // 13) The prediction is clamped to ONE line and carries no hint element: the
+  //     composer is exactly one line tall while it is empty, and the overlay is
+  //     fixed on top of it, so a second row would paint over the toolbar below
+  //     (PR #18 commit 1).
+  await clearComposer(page)
+  await seamShowSuggestion(page, '这是一段用于校验单行截断与输入框高度的很长的预测文本，'.repeat(6))
+  await sleep(600)
+  const clamped = await page.evaluate(() => {
+    const container = document.querySelector('.dsh-ph-suggest')
+    const text = document.querySelector('.dsh-ph-suggest-text')
+    const host = document.querySelector('[data-composer-input]')
+    const card = document.querySelector('[data-composer-card]')
+    if (container === null || text === null || host === null) return null
+    const box = container.getBoundingClientRect()
+    const textBox = text.getBoundingClientRect()
+    const hostBox = host.getBoundingClientRect()
+    return {
+      line: Number.parseFloat(getComputedStyle(container).lineHeight),
+      containerHeight: box.height,
+      containerBottom: box.bottom,
+      textHeight: textBox.height,
+      hostHeight: hostBox.height,
+      hostBottom: hostBox.bottom,
+      cardBottom: card === null ? null : card.getBoundingClientRect().bottom,
+      hintPresent: document.querySelector('.dsh-ph-suggest-hint') !== null,
+    }
+  })
+  check('a long prediction clamps to one line and fits the composer box',
+    clamped !== null
+      && clamped.textHeight <= clamped.line + 2
+      && clamped.hintPresent === false
+      // The overlay must not reach past the editor's own box: that is what used to
+      // paint over the toolbar.
+      && clamped.containerHeight <= clamped.hostHeight + 2
+      && clamped.containerBottom <= clamped.hostBottom + 2,
+    clamped)
+  await seamHideSuggestion(page)
+
+  // 14) Issue #17: the overlay mirrors the EDITOR's type style, not the card's, and
+  //     it must not force its own italic/opacity. A theme that sizes the editor
+  //     differently from the card is the case that exposes the mix.
+  await clearComposer(page)
+  const themed = await page.evaluate(async () => {
+    const style = document.createElement('style')
+    style.setAttribute('data-e2e-type-size', '1')
+    // The card keeps the app's own size; only the editor is re-typed, exactly as a
+    // theme pack does it.
+    style.textContent = '[data-composer-card] [data-composer-input]{font-size:13px !important;font-style:normal !important}'
+    document.head.appendChild(style)
+    // A theme switch is an attribute change, not a resize: this is what has to
+    // invalidate the cached type style.
+    document.documentElement.setAttribute('data-e2e-theme', 'dark')
+    const seam = window.__dshPhTest
+    const host = document.querySelector('[data-composer-input]')
+    if (seam === undefined || host === null) return null
+    host.focus()
+    seam.showPending('正在预测下一条…', host, { hidePlaceholder: false })
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const overlay = document.querySelector('.dsh-ph-suggest')
+    const text = document.querySelector('.dsh-ph-suggest-text')
+    if (overlay === null || text === null) return null
+    const overlayStyle = getComputedStyle(overlay)
+    const textStyle = getComputedStyle(text)
+    return {
+      hostSize: getComputedStyle(host).fontSize,
+      overlaySize: overlayStyle.fontSize,
+      textSize: textStyle.fontSize,
+      textStyle: textStyle.fontStyle,
+      textOpacity: textStyle.opacity,
+      inlineFont: overlay.style.font,
+    }
+  })
+  // Computed sizes go through float parsing, so compare numerically, not as
+  // strings: the overlay legitimately reads 13.0001px against the editor's 13px.
+  const pendingState = themed === null
+    ? null
+    : {
+      ...themed,
+      matchesEditor: Math.abs(Number.parseFloat(themed.textSize) - Number.parseFloat(themed.hostSize)) <= 0.05
+        && Math.abs(Number.parseFloat(themed.overlaySize) - Number.parseFloat(themed.hostSize)) <= 0.05,
+    }
+  await page.evaluate(() => {
+    document.querySelector('[data-e2e-type-size]')?.remove()
+    document.documentElement.removeAttribute('data-e2e-theme')
+    window.__dshPhTest?.hideSuggestion()
+  })
+  check('the overlay mirrors the editor type and forces no italic',
+    pendingState !== null
+      && pendingState.matchesEditor === true
+      && pendingState.textStyle === 'normal'
+      && Number(pendingState.textOpacity) >= 0.9
+      && pendingState.inlineFont === '',
+    pendingState)
+  await sleep(200)
 
   check('placeholder is restored when the overlay hides',
     placeholderAfterHide === true,

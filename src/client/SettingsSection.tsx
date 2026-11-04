@@ -43,6 +43,38 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
         />
         <span>{t('completion.toggle')}</span>
       </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.quoteComment}
+          onChange={(e) => { setPref('quoteComment', e.target.checked) }}
+        />
+        <span>{t('quote.toggle')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.quoteYield}
+          onChange={(e) => { setPref('quoteYield', e.target.checked) }}
+        />
+        <span>{t('quote.yieldToggle')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.promptEnhance}
+          onChange={(e) => { setPref('promptEnhance', e.target.checked) }}
+        />
+        <span>{t('enhance.toggle')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
+          checked={prefs.aiCompletion}
+          onChange={(e) => { setPref('aiCompletion', e.target.checked) }}
+        />
+        <span>{t('completion.aiToggle')}</span>
+      </label>
 
       <p className="dsh-ph-group">{t('settings.groupClipboard')}</p>
       {COPY_MODES.map((mode) => (
@@ -66,14 +98,6 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
       </label>
 
       <p className="dsh-ph-group">{t('settings.groupNav')}</p>
-      <label className="dsh-ph-row">
-        <input
-          type="checkbox"
-          checked={prefs.tocVisible}
-          onChange={(e) => { setPref('tocVisible', e.target.checked) }}
-        />
-        <span>{t('toc.toggle')}</span>
-      </label>
       <label className="dsh-ph-row">
         <input
           type="checkbox"
@@ -112,6 +136,7 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
       <p className="dsh-ph-note">{t('sideChat.note')}</p>
 
       <p className="dsh-ph-note">{t('bridge.label')}：{bridgeReady ? t('bridge.on') : t('bridge.off')}</p>
+
       <p className="dsh-ph-note">{t('suggest.keys')}</p>
       <p className="dsh-ph-note">{t('settings.note')}</p>
     </div>

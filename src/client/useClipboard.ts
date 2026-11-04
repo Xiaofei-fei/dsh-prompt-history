@@ -1,8 +1,8 @@
 /**
  * Clipboard behaviour for the composer: terminal-style right-click paste, the
  * two copy-on-select modes, the selection toolbar (复制 / 引用 / 侧聊追问), and
- * the quote action — which queues the selection as a numbered note above the
- * composer instead of pasting a blockquote into the draft (see quoteMarks).
+ * the quote that queues selected text as a note instead of writing it into the
+ * draft (the note card above the composer owns it until the message is sent).
  *
  * Both halves install document-level capture listeners once; everything they
  * need at event time comes through the composer's live ref, so no listener is
@@ -10,24 +10,24 @@
  *
  * @module dsh-prompt-history/client/useClipboard
  */
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import {
-  flashCopied, hideSelectionToolbar, showSelectionToolbar,
+  flashCopied, flashQuoteRow, hideSelectionToolbar, showQuoteComposer, showSelectionToolbar,
 } from './feedback.ts'
-import { T } from './i18n.ts'
+import { captureQuoteContext } from './quoteContext.ts'
+import { addQuoteEntry, selectionAnchor } from './quoteMarks.tsx'
 import {
   editorHost, editorSelectedText, editorSelectionOffsets, focusEditor, isEditorTarget, setEditorCaret,
 } from './editor.ts'
 import { getPrefs } from './prefs.ts'
 import { quoteBlock, sendToSideChat } from './bridge.ts'
-import { addQuoteEntry, selectionAnchor } from './quoteMarks.tsx'
 import type { LiveComposer } from './useSuggestion.ts'
 
 /** What the composer hands the hook. */
 export interface ClipboardInput {
   /** Live composer state (draft, phase, removed, inputActions). */
   readonly liveRef: { readonly current: LiveComposer }
-  /** Current session id (quotes are queued per session). */
+  /** Session that owns the queued quote notes. */
   readonly sessionId: string | undefined
 }
 
@@ -37,10 +37,6 @@ export interface ClipboardInput {
  */
 export function useClipboard(input: ClipboardInput): void {
   const { liveRef, sessionId } = input
-  // The listeners below mount once per composer, so they read the current
-  // session through a ref: a session switch must not send quotes to the old one.
-  const sessionRef = useRef(sessionId)
-  sessionRef.current = sessionId
 
   // Right-click paste (terminal style): a right-click on the composer editor
   // pastes the clipboard directly, like a Linux terminal.
@@ -170,10 +166,11 @@ export function useClipboard(input: ClipboardInput): void {
       dragStartedInEditor = isEditorTarget(e.target)
     }
 
-    // 引用: queue the FULL selected text as a numbered note above the composer
-    // (Codex-style). The draft is left untouched — the note is merged into the
-    // message when the user sends, so the input stays exactly
-    // what the user typed.
+
+    // 引用: capture what was selected AND where it came from, then put a block in
+    // the composer that carries the text, an optional comment and the source turn
+    // ("※ 引自第 N 轮 · 助手"). A code selection arrives as a fenced block so the
+    // model reads real code instead of a paragraph of it.
     const quoteSelection = (): void => {
       const live = liveRef.current
       if (live.phase === 'adjudicating' || live.phase === 'submitting' || live.removed) return
@@ -185,20 +182,40 @@ export function useClipboard(input: ClipboardInput): void {
       // in-composer selection read instead and nothing would happen.
       const sel = document.getSelection()
       const selectionInHost = sel !== null && sel.rangeCount > 0 && sel.anchorNode !== null && host.contains(sel.anchorNode)
-      let text = ''
       if (selectionInHost) {
-        text = editorSelectedText(host)
-      } else if (sel !== null && !sel.isCollapsed) {
-        text = sel.toString()
+        // A selection inside the composer is an edit, not a quote.
+        return
       }
-      if (text.trim() === '') return
-      // Anchored while the selection is still live: the badge is rebuilt from
-      // this anchor every frame, so it follows its text when the transcript
-      // scrolls instead of drifting away from it.
+      const context = captureQuoteContext()
+      if (context === null) return
+      // Anchor now: the comment dialog (and the click on it) clears the DOM
+      // selection, and the badge needs the text the quote actually came from.
       const anchor = selectionAnchor()
-      addQuoteEntry(sessionRef.current, text, anchor)
-      requestAnimationFrame(() => { focusEditor(host) })
-      flashCopied(null, T('pill.quoted'))
+      const rect = selectionRect()
+      // The quote becomes a note above the composer, not text in the draft: the
+      // draft stays empty until the user sends, and the note is merged into the
+      // message at that moment.
+      const apply = (comment: string, perItem: boolean): void => {
+        addQuoteEntry(sessionId, context.text, anchor, {
+          fence: context.fence,
+          comment,
+          perItem,
+        })
+        flashQuoteRow(context.row)
+      }
+      if (!getPrefs().quoteComment) {
+        apply('', false)
+        return
+      }
+      void showQuoteComposer(
+        rect ?? new DOMRect(window.innerWidth / 2 - 180, window.innerHeight / 2, 0, 0),
+        context.text,
+        false,
+      ).then((result) => {
+        // Cancelled: nothing was inserted and the draft is untouched.
+        if (result === null) return
+        apply(result.comment, result.perItem)
+      })
     }
 
     const onSelectionChange = (): void => {
@@ -224,6 +241,13 @@ export function useClipboard(input: ClipboardInput): void {
         if (mode === 'auto') {
           copySelection()
         } else {
+          // Another quote plugin shows its own bar for the same selection
+          // (`dshq-actions`); two toolbars stacked on one selection is worse than
+          // either, so ours stands down when that pref is on.
+          if (getPrefs().quoteYield && document.querySelector('.dshq-actions') !== null) {
+            hideSelectionToolbar()
+            return
+          }
           const rect = selectionRect()
           if (rect !== null) {
             // The action only exists while the feature is on: a disabled side

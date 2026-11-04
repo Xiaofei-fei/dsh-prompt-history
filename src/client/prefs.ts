@@ -22,13 +22,38 @@ export interface PluginPrefs {
   rightClickPaste: boolean
   /** Keep one global prompt-history ring across sessions (localStorage). */
   globalHistory: boolean
-  /** Show the draggable Chat TOC grip on the chat's left edge. */
-  tocVisible: boolean
   /**
    * Codex-style prompt completion: while the draft is a prefix of an earlier
    * prompt, ghost the rest after the caret and accept it with Tab / →.
    */
   promptCompletion: boolean
+  /**
+  /**
+   * Quoting opens a small comment box first: the quote and the comment become one
+   * block (with its source turn) instead of a bare blockquote. Off restores the
+   * one-click quote.
+   */
+  quoteComment: boolean
+  /**
+   * When another quote plugin (one whose toolbar is `.dshq-actions`) shows its bar
+   * for the same selection, hide ours instead of stacking two toolbars.
+   */
+  quoteYield: boolean
+  /**
+   * Prompt enhancement: the composer shows a ✨ button that rewrites the draft
+   * into a structured prompt through the session model. Never applies by itself —
+   * the rewrite lands in a compare panel with an explicit apply and an undo.
+   */
+  promptEnhance: boolean
+  /**
+   * Model continuation for the composer: when no history prompt matches the
+   * draft, ask the session model to finish the half-written message from the
+   * recent conversation and ghost the missing tail after the caret.
+   *
+   * Costs one small model call per typing pause; off means the ghost only ever
+   * comes from history.
+   */
+  aiCompletion: boolean
   /**
    * Remind when the side chat and the main conversation touch the same files in
    * parallel. Warning only: nothing is blocked.
@@ -54,8 +79,11 @@ const DEFAULTS: PluginPrefs = {
   copyMode: 'toolbar',
   rightClickPaste: true,
   globalHistory: false,
-  tocVisible: true,
   promptCompletion: true,
+  aiCompletion: true,
+  promptEnhance: true,
+  quoteComment: true,
+  quoteYield: true,
   contextSuggest: true,
   sideChat: true,
   writeGuard: true,
@@ -106,8 +134,11 @@ function migrate(parsed: unknown): PluginPrefs {
     copyMode,
     rightClickPaste: bool(source.rightClickPaste, DEFAULTS.rightClickPaste),
     globalHistory: bool(source.globalHistory, DEFAULTS.globalHistory),
-    tocVisible: bool(source.tocVisible, DEFAULTS.tocVisible),
     promptCompletion: bool(source.promptCompletion, DEFAULTS.promptCompletion),
+    aiCompletion: bool(source.aiCompletion, DEFAULTS.aiCompletion),
+    promptEnhance: bool(source.promptEnhance, DEFAULTS.promptEnhance),
+    quoteComment: bool(source.quoteComment, DEFAULTS.quoteComment),
+    quoteYield: bool(source.quoteYield, DEFAULTS.quoteYield),
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
     sideChat: storedVersion >= 3 ? bool(source.sideChat, sideChatDefault) : true,
     writeGuard: bool(source.writeGuard, DEFAULTS.writeGuard),

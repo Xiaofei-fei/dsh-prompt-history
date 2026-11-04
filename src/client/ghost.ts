@@ -9,7 +9,8 @@
  * measured the ghost simply stays hidden — a misplaced hint is worse than none.
  */
 import { COMPOSER_CARD } from './editor.ts'
-import { composerTypeStyle, editorLineHeight, invalidateTypeStyle } from './typeStyle.ts'
+import { applyTypeVariables, composerTypeStyle, editorLineHeight, nodeZoom, invalidateTypeStyle, subscribeTypeStyle } from './typeStyle.ts'
+import { claimComposer, registerGhostHider } from './overlayExclusion.ts'
 import { scheduleFrame } from './frame.ts'
 import { asSelfWrite, occlusionNeedsProbe, subscribeOcclusionDirty } from './occlusion.ts'
 import { sitBelowCover } from './occlusion.ts'
@@ -24,8 +25,13 @@ function ensureStyle(): void {
   tag.dataset.pluginCss = 'dsh-ph-ghost'
   tag.textContent = [
     `.${GHOST_CLASS}{position:fixed;z-index:2147482000;pointer-events:none;`,
-    'white-space:pre;overflow:hidden;font:inherit;opacity:.45;',
-    'color:var(--dsw-alias-label-primary);}',
+    'white-space:pre;overflow:hidden;',
+    // Typography from the editor via custom properties: a theme can still override
+    // this rule, which inline font declarations made impossible (issue #17).
+    'font-family:var(--dsh-ph-font-family,inherit);font-size:var(--dsh-ph-font-size,inherit);',
+    'font-weight:var(--dsh-ph-font-weight,inherit);font-style:var(--dsh-ph-font-style,normal);',
+    'letter-spacing:var(--dsh-ph-letter-spacing,normal);line-height:var(--dsh-ph-line-height,normal);',
+    'color:var(--dsw-alias-label-caption,currentColor);opacity:1;}',
   ].join('')
   document.head.appendChild(tag)
   window.addEventListener('resize', () => { invalidateTypeStyle(); onViewportChange() }, { passive: true })
@@ -39,6 +45,7 @@ export function ghostVisible(): boolean {
 
 /** Remove the ghost (idempotent). */
 subscribeOcclusionDirty(() => { scheduleFrame(paint) })
+subscribeTypeStyle(() => { scheduleFrame(paint) })
 
 /** Remove the ghost overlay (idempotent). */
 export function hideGhost(): void {
@@ -192,25 +199,35 @@ function paint(): boolean {
     if (shown.host.getClientRects().length === 0) hideGhost()
     return false
   }
-  const card = document.querySelector<HTMLElement>(COMPOSER_CARD)
-  const type = composerTypeStyle(card)
+  // The editor host owns the type the ghost mirrors (issue #17).
+  const type = composerTypeStyle(shown.host)
   // The line box, not the caret rect: they differ by a couple of px, and forcing
   // the caret height puts the ghost below the draft's baseline (issue #12). The
   // caret sits centred in its line box, so the box top is half the difference
   // above it — that lands the two texts on one baseline.
   const line = editorLineHeight(shown.host) || rect.height
-  const top = rect.top - (line - rect.height) / 2
-  const signature = [shown.text, round(rect.right), round(top), round(line), round(rect.height), type.font].join('\u0000')
+  const top = rect.top - (line * nodeZoom(shown.host, 1) - rect.height) / 2
+  const signature = [
+    shown.text, round(rect.right), round(top), round(line), round(rect.height),
+    type.fontFamily, type.fontWeight, type.fontStyle, type.letterSpacing, round(type.fontSize),
+  ].join('\u0000')
   // The occlusion decision is per overlay and must run on every paint (it is
   // internally gated); only the DOM rebuild waits for a change.
   if (signature !== paintedSignature) {
+    // Same rule as the suggestion overlay: the measurements above are viewport
+    // pixels, the properties below are CSS pixels, and the type has to grow by the
+    // same factor they are divided by (see nodeZoom).
+    const zoom = nodeZoom(el, 1)
+    // Same reasoning as the suggestion overlay: the editor renders `line` through
+    // its own zoom, the ghost through this one, so scale by the ratio.
+    const typeScale = nodeZoom(shown.host, 1) / zoom
     asSelfWrite(() => {
       el.textContent = shown.text
-      el.style.font = type.font
-      el.style.left = `${rect.right}px`
-      el.style.top = `${top}px`
-      el.style.height = `${line}px`
-      el.style.lineHeight = `${line}px`
+      applyTypeVariables(el, type, line * typeScale, typeScale)
+      el.style.left = `${rect.right / zoom}px`
+      el.style.top = `${top / zoom}px`
+      el.style.height = `${line * typeScale}px`
+      el.style.lineHeight = `${line * typeScale}px`
     })
     paintedWidth = el.getBoundingClientRect().width
     paintedSignature = signature
@@ -226,6 +243,9 @@ function caretRect(host: HTMLTextAreaElement | HTMLElement): DOMRect | null {
   if (host instanceof HTMLTextAreaElement) return textareaCaretRect(host)
   return editableCaretRect(host)
 }
+
+/** A prediction must let go of the composer when the completion ghost appears. */
+registerGhostHider(hideGhost)
 
 /**
  * Render `text` as a dim ghost right after the caret inside the composer.
@@ -243,6 +263,7 @@ export function showGhost(text: string, host: HTMLTextAreaElement | HTMLElement)
     hideGhost()
     return false
   }
+  claimComposer('ghost')
   ensureStyle()
   if (node === null) {
     node = document.createElement('div')
