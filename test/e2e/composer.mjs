@@ -5,7 +5,7 @@
  * @module dsh-prompt-history/test/e2e/composer
  */
 import {
-  clearComposer, composerText, focusComposer, normalizePrompt, openScratchSession, sleep,
+  clearComposer, clearQuotes, composerText, focusComposer, normalizePrompt, openScratchSession, quoteState, sleep,
 } from './harness.mjs'
 
 /**
@@ -160,12 +160,14 @@ export async function composerSuite(page, check) {
   await page.keyboard.type('这条引用的评论')
   await page.keyboard.press('Enter')
   await sleep(900)
-  const quoted = (await composerText(page) ?? '').trim()
-  const quotedNorm = normalizePrompt(quoted)
-  check('the quote carries the text and the comment, without an attribution line',
-    quoted.startsWith('> ') && quotedNorm.includes('❝') && quotedNorm.includes('❞')
-      && quotedNorm.includes('这条引用的评论') && !quotedNorm.includes('引自第'),
-    { quoted: quotedNorm.slice(0, 120) })
+  // The comment is kept with the note, not written into the composer: the
+  // draft stays empty and the note card carries the selection.
+  const noteState = await quoteState(page)
+  const noteDraft = (await composerText(page) ?? '').trim()
+  check('the quote keeps the draft empty and shows its note card',
+    noteDraft === '' && noteState.hostOpen === '1' && noteState.rows.length === 1,
+    { draft: JSON.stringify(noteDraft.slice(0, 40)), rows: noteState.rows, hostOpen: noteState.hostOpen })
+  await clearQuotes(page)
   await clearComposer(page)
 
 }

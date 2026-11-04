@@ -23,6 +23,7 @@ import { hideSuggestion, installSuggestStyle, showPending, showSuggestion } from
 import { hideGhost, showGhost } from './ghost.ts'
 import { bindSideChat } from './sideChat.tsx'
 import { bindRootContext } from './sessionCtx.ts'
+import { bindQuoteNotes } from './quoteMarks.tsx'
 
 /** Required services: the slot registry, the locale service. */
 export const inject = ['slots', 'locale']
@@ -103,6 +104,10 @@ export function apply(ctx: ClientContext): void {
   // sessions service; it is resolved lazily per call because it appears only
   // after the host connection.
   bindRootContext(ctx)
+  // Quote marks need the same root context: the transcript pill registers its
+  // user-text rule and node renderer on uiConversation + slots, and both live
+  // outside React's tree.
+  bindQuoteNotes(ctx)
   // Style first: the suggestion overlay hides the composer's own placeholder.
   installSuggestStyle()
 

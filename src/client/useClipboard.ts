@@ -1,8 +1,8 @@
 /**
  * Clipboard behaviour for the composer: terminal-style right-click paste, the
  * two copy-on-select modes, the selection toolbar (复制 / 引用 / 侧聊追问), and
- * the quote insertion that puts the selected text in the composer as a
- * markdown blockquote.
+ * the quote that queues selected text as a note instead of writing it into the
+ * draft (the note card above the composer owns it until the message is sent).
  *
  * Both halves install document-level capture listeners once; everything they
  * need at event time comes through the composer's live ref, so no listener is
@@ -14,8 +14,8 @@ import { useEffect } from 'react'
 import {
   flashCopied, flashQuoteRow, hideSelectionToolbar, showQuoteComposer, showSelectionToolbar,
 } from './feedback.ts'
-import { captureQuoteContext, formatQuote } from './quoteContext.ts'
-import { T } from './i18n.ts'
+import { captureQuoteContext } from './quoteContext.ts'
+import { addQuoteEntry, selectionAnchor } from './quoteMarks.tsx'
 import {
   editorHost, editorSelectedText, editorSelectionOffsets, focusEditor, isEditorTarget, setEditorCaret,
 } from './editor.ts'
@@ -27,6 +27,8 @@ import type { LiveComposer } from './useSuggestion.ts'
 export interface ClipboardInput {
   /** Live composer state (draft, phase, removed, inputActions). */
   readonly liveRef: { readonly current: LiveComposer }
+  /** Session that owns the queued quote notes. */
+  readonly sessionId: string | undefined
 }
 
 /**
@@ -34,7 +36,7 @@ export interface ClipboardInput {
  * @param input - the composer's live ref.
  */
 export function useClipboard(input: ClipboardInput): void {
-  const { liveRef } = input
+  const { liveRef, sessionId } = input
 
   // Right-click paste (terminal style): a right-click on the composer editor
   // pastes the clipboard directly, like a Linux terminal.
@@ -164,26 +166,6 @@ export function useClipboard(input: ClipboardInput): void {
       dragStartedInEditor = isEditorTarget(e.target)
     }
 
-    /** Insert one already-formatted quote block into the composer at the caret. */
-    const insertQuote = (quoted: string, atEnd: boolean): void => {
-      const live = liveRef.current
-      const host = editorHost()
-      if (host === null) return
-      const draft = live.draft
-      const caret = atEnd ? draft.length : (editorSelectionOffsets(host)?.start ?? draft.length)
-      // A blank line before the quote separates it from prior text; a SINGLE
-      // newline after lets the next input start on the line right below it.
-      const lead = caret > 0 && draft[caret - 1] !== '\n' ? '\n\n' : caret > 0 ? '\n' : ''
-      const tail = '\n'
-      const next = draft.slice(0, caret) + lead + quoted + tail + draft.slice(caret)
-      live.inputActions.setDraft?.(next)
-      const pos = caret + lead.length + quoted.length + tail.length
-      requestAnimationFrame(() => {
-        focusEditor(host)
-        setEditorCaret(host, pos)
-      })
-      flashCopied(null, T('pill.quoted'))
-    }
 
     // 引用: capture what was selected AND where it came from, then put a block in
     // the composer that carries the text, an optional comment and the source turn
@@ -206,10 +188,19 @@ export function useClipboard(input: ClipboardInput): void {
       }
       const context = captureQuoteContext()
       if (context === null) return
-      const atEnd = live.draft.length > 0 && live.draft.trimEnd().length === live.draft.length
+      // Anchor now: the comment dialog (and the click on it) clears the DOM
+      // selection, and the badge needs the text the quote actually came from.
+      const anchor = selectionAnchor()
       const rect = selectionRect()
+      // The quote becomes a note above the composer, not text in the draft: the
+      // draft stays empty until the user sends, and the note is merged into the
+      // message at that moment.
       const apply = (comment: string, perItem: boolean): void => {
-        insertQuote(formatQuote(context, comment, perItem), atEnd)
+        addQuoteEntry(sessionId, context.text, anchor, {
+          fence: context.fence,
+          comment,
+          perItem,
+        })
         flashQuoteRow(context.row)
       }
       if (!getPrefs().quoteComment) {

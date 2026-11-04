@@ -8,6 +8,7 @@
  */
 import { launch, openApp, startServer } from './harness.mjs'
 import { composerSuite } from './composer.mjs'
+import { quoteSuite } from './quote.mjs'
 import { predictionBoxSuite } from './predictionBox.mjs'
 import { aiCompletionSuite } from './aiCompletion.mjs'
 import { enhanceSuite } from './enhance.mjs'
@@ -48,6 +49,13 @@ try {
   const { page, errors } = await openApp(browser)
   await suite('overlay', () => overlaySuite(page, check))
   await suite('composer', () => composerSuite(page, check))
+  // Its own page: the quote suite queues notes and drives the send gesture, and a
+  // page that earlier suites already typed into (and left a note card on) makes
+  // every selection click land on the wrong element.
+  await suite('quote', async () => {
+    const { page: own } = await openApp(browser)
+    try { await quoteSuite(own, check) } finally { await own.close() }
+  })
   // Its own page: this suite opens a side-chat pane, which takes the composer seat
   // away from the shared page and breaks the suites that follow it.
   await suite('side chat', async () => {

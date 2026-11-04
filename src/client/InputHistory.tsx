@@ -51,6 +51,7 @@ import { useHistory } from './useHistory.ts'
 import { useBrowse } from './useBrowse.ts'
 import { useComposerKeys } from './useComposerKeys.ts'
 import { EnhanceAction } from './EnhanceAction.tsx'
+import { QuoteOverlay } from './quoteMarks.tsx'
 import { useCompletion } from './useCompletion.ts'
 import { RESET_BROWSE, type BrowseState, type SearchState } from './browse.ts'
 import { registerMainInserter } from './bridge.ts'
@@ -134,7 +135,7 @@ export function InputHistory(props: InputHistoryProps) {
   // History-completion ghost (suffix of a past prompt after the caret).
   const completion = useCompletion({ sessionId, liveRef, historyRef, draft })
   // Clipboard: right-click paste, copy modes, selection toolbar, quote.
-  useClipboard({ liveRef })
+  useClipboard({ liveRef, sessionId: sessionId?.toString() })
   // Browsing (↑/↓ with prefix search) and Ctrl+R reverse search.
   const browsing = useBrowse({ liveRef, historyRef, browseRef, searchRef })
   // History: seed/reset/fold the prompt list from the session's own messages.
@@ -178,11 +179,19 @@ export function InputHistory(props: InputHistoryProps) {
   // The ✨ enhancement button lives in the same input slot as the composer entry;
   // it renders null while the feature is off, so nothing else changes.
   return (
-    <EnhanceAction
-      draft={draft}
-      phase={phase}
-      actions={inputActions}
-      sessionId={sessionId?.toString()}
-    />
+    <>
+      <EnhanceAction
+        draft={draft}
+        phase={phase}
+        actions={inputActions}
+        sessionId={sessionId?.toString()}
+      />
+      <QuoteOverlay
+        sessionId={sessionId?.toString()}
+        draft={draft}
+        phase={phase}
+        inputActions={inputActions}
+      />
+    </>
   )
 }
