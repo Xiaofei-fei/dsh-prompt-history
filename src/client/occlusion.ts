@@ -9,7 +9,9 @@
  *
  * This module answers a single question: what is covering this box, and how
  * high is it stacked? An overlay can then drop to just below that surface and
- * let the popup cover it cleanly, without moving the hint or hiding it.
+ * let the popup cover it cleanly. Tooltip bubbles are the exception: nested in
+ * the anchor's stacking context, they have no dependable layer to slide under,
+ * so the overlay hides while a tooltip covers it instead.
  *
  * @module dsh-prompt-history/client/occlusion
  */
@@ -30,6 +32,7 @@ const POPUP_SELECTOR = [
   '[role="dialog"]',
   '[aria-modal="true"]',
   '[data-popper-placement]',
+  '[role="tooltip"]',
 ].join(',')
 
 /**
@@ -151,8 +154,9 @@ function coveringElements(box: Box, probe: Element | null): Element[] {
     if (probe !== null && probe.contains(hit)) continue
     out.push(hit)
   }
-  const popup = document.querySelector(POPUP_SELECTOR)
-  if (popup !== null) out.push(popup)
+  // Every matching popup counts, not just the first: a tooltip and a menu can
+  // both be open, and querySelector would only ever see the earlier one.
+  for (const popup of document.querySelectorAll(POPUP_SELECTOR)) out.push(popup)
   return out
 }
 
@@ -178,6 +182,11 @@ export function coveringZIndex(box: Box, probe: Element | null): number | null {
       rect.bottom > box.top &&
       rect.top < box.top + box.height
     if (!overlaps) continue
+    // A tooltip bubble is transient and nested in the anchor's own stacking
+    // context (often z-index 100) — there is no reliable layer to slide under,
+    // so report "no layer" and let the caller hide the hint rather than try to
+    // out-stack it. This keeps surfaces like the cost-meter quota tooltip readable.
+    if (el.matches('[role="tooltip"]')) return null
     const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10)
     if (Number.isFinite(z) && z > max) max = z
   }
