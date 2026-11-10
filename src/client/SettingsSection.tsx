@@ -70,6 +70,14 @@ export function SettingsSection({ t }: PropsLocale<'dsh-prompt-history'>): JSX.E
       <label className="dsh-ph-row">
         <input
           type="checkbox"
+          checked={prefs.promptTemplates}
+          onChange={(e) => { setPref('promptTemplates', e.target.checked) }}
+        />
+        <span>{t('tpl.toggle')}</span>
+      </label>
+      <label className="dsh-ph-row">
+        <input
+          type="checkbox"
           checked={prefs.aiCompletion}
           onChange={(e) => { setPref('aiCompletion', e.target.checked) }}
         />

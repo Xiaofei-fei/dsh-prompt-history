@@ -53,6 +53,11 @@
    - The button greys out on an empty draft, on drafts over 12,000 characters and while a message is sending. A failure only shows a message and leaves the draft untouched, with a retry in place. `Esc` closes the panel; the panel also offers **Copy** and **Cancel**.
    - Every string follows the DSH language (zh/en).
 
+10. **Prompt templates (📋, Settings toggle, default on)** — the **📋** button in the composer action row opens your saved prompt library. **Five starter templates ship on first install** (code review / explain code / write tests / find edge cases / refactor plan); clicking a row writes its body into the draft **at the caret** — it never sends, and it never overwrites what you already typed.
+    - **Grow the library from the draft**: type the prompt you want to keep, hit **Save as template**, and it becomes a row in the panel. **✎** edits a row, **✕** deletes it (with a confirm step).
+    - The panel has a **filter**; ↑/↓ selects, **Enter** inserts, **Esc** closes. Clicking a row never steals the composer focus, so the text lands exactly where the caret was. The panel carries `role="dialog"`, which is also how the plugin's own completion/prediction ghosts learn to yield underneath it.
+    - Templates live in **browser localStorage** (cap 100, body cap 8,000 characters) — fully local, request-free. The button greys out while a message is sending.
+
 Pure UI behavior: no session events, no agent-loop changes. History recall, quoting and copying are entirely browser-local and request-free; the features that call a model are **context suggestion** and **AI continuation**, which you control in Settings (both on by default). While enabled they send at most one tiny request (~512 token budget) per turn and per typing pause to the **current session model**; turn them off and the plugin is fully offline again. Recalled, quoted and predicted text only ever enters the composer draft — it reaches the model only if *you* press Enter.
 
 ## Quick start
@@ -83,6 +88,7 @@ Open **Settings → `>_ Terminal Input`** (stored in browser localStorage, effec
 | Prompt enhancement (✨) | On | The ✨ rewrites the draft into a structured prompt; compare, apply, undo (one small request per run) |
 | AI continuation (Tab accepts) | On | When no history prompt matches, the model finishes the half-written message after a pause; Tab or → accepts (one small request per typing pause) |
 | Right-click paste | On | Off restores the browser's native context menu |
+| Prompt templates (📋) | On | The 📋 opens the saved prompt library; a click writes the body into the draft at the caret. Stored in browser localStorage (cap 100), no requests |
 
 Up/Down history is always on, independent of these switches. Completion shares the same history and the same prefix-matching semantics as Up; the history pass stays free, and only the model fallback spends quota.
 
