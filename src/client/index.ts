@@ -24,6 +24,7 @@ import { hideGhost, showGhost } from './ghost.ts'
 import { bindSideChat } from './sideChat.tsx'
 import { bindRootContext } from './sessionCtx.ts'
 import { bindQuoteNotes } from './quoteMarks.tsx'
+import { ensureSeeded } from './templateLibrary.ts'
 
 /** Required services: the slot registry, the locale service. */
 export const inject = ['slots', 'locale']
@@ -99,6 +100,10 @@ export function apply(ctx: ClientContext): void {
   // Dictionaries + the vanilla-DOM translator (toolbar/pills/overlay).
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompt-history: dictionaries')
   setTranslator(ctx.locale.bind(NS))
+  // The starter prompt templates are written once, after the translator is
+  // installed so they land in the app's current language. From then on they are
+  // the user's data: deleting them is permanent, they are never re-seeded.
+  ensureSeeded()
 
   // Keep the root context so component code (which has no ctx) can reach the
   // sessions service; it is resolved lazily per call because it appears only

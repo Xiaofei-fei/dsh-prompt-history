@@ -70,6 +70,11 @@ export interface PluginPrefs {
    * ghost it. Costs a small model call per prediction.
    */
   contextSuggest: boolean
+  /**
+   * Prompt templates: a 📋 button in the composer opens the saved prompt
+   * library; clicking a template writes its body into the draft at the caret.
+   */
+  promptTemplates: boolean
 }
 
 const STORAGE_KEY = 'dsh-prompt-history.prefs'
@@ -85,6 +90,7 @@ const DEFAULTS: PluginPrefs = {
   quoteComment: true,
   quoteYield: true,
   contextSuggest: true,
+  promptTemplates: true,
   sideChat: true,
   writeGuard: true,
 }
@@ -140,6 +146,7 @@ function migrate(parsed: unknown): PluginPrefs {
     quoteComment: bool(source.quoteComment, DEFAULTS.quoteComment),
     quoteYield: bool(source.quoteYield, DEFAULTS.quoteYield),
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
+    promptTemplates: bool(source.promptTemplates, DEFAULTS.promptTemplates),
     sideChat: storedVersion >= 3 ? bool(source.sideChat, sideChatDefault) : true,
     writeGuard: bool(source.writeGuard, DEFAULTS.writeGuard),
   }
