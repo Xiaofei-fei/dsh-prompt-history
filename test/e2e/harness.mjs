@@ -234,7 +234,7 @@ export async function openApp(browser, prefs = BASE_PREFS) {
 export async function dismissDialog(page) {
   await page.evaluate(() => {
     const button = [...document.querySelectorAll('button')]
-      .find((b) => /知道了|继续|Got it/.test((b.textContent ?? '').trim()))
+      .find((b) => /知道了|继续|开始|跳过|Got it|Continue|Start|Skip/.test((b.textContent ?? '').trim()))
     if (button !== undefined) button.click()
   })
   await sleep(500)
