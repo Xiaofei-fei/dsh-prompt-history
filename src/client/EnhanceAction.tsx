@@ -149,11 +149,38 @@ export function EnhanceAction(props: EnhanceActionProps): JSX.Element | null {
     setEnhanced('')
     setOpen(true)
     setBusy(true)
-    const text = await bridge.enhance(draft)
+    // Stream first: the panel fills in while the model writes. A host without
+    // the stream method (or a refused carrier) yields nothing, so fall back to
+    // the unary rewrite instead of reporting a failure.
+    let result = ''
+    let sawFrame = false
+    try {
+      for await (const chunk of bridge.enhanceStream(draft)) {
+        if (requestRef.current !== ticket) return
+        sawFrame = true
+        // Every frame is the text accumulated so far, and the LAST one is
+        // terminal: the sanitized rewrite, or '' when the stream broke. Taking
+        // it unconditionally is what turns a broken stream into a failure
+        // instead of leaving half a rewrite on screen with Apply enabled.
+        result = chunk
+        if (chunk !== '') setEnhanced(chunk)
+      }
+    } catch { /* the unary fallback below covers a refused stream */ }
     if (requestRef.current !== ticket) return
+    if (!sawFrame) {
+      result = await bridge.enhance(draft)
+      if (requestRef.current !== ticket) return
+      if (result !== '') setEnhanced(result)
+    }
     setBusy(false)
-    if (text === '') { setFailure('failed'); return }
-    setEnhanced(text)
+    if (result.trim() === '') {
+      // Drop whatever the stream already painted: the panel must never offer
+      // half a rewrite for Apply.
+      setEnhanced('')
+      setFailure('failed')
+      return
+    }
+    setEnhanced(result)
   }, [bridge, canEnhance, props.draft])
 
   const apply = useCallback((): void => {
@@ -220,7 +247,7 @@ export function EnhanceAction(props: EnhanceActionProps): JSX.Element | null {
           <span>{busy ? T('enhance.working') : T('enhance.title')}</span>
           <button type="button" className="dsh-ph-enh-close" aria-label={T('enhance.cancel')} onClick={() => { setOpen(false) }}>×</button>
         </div>
-        {busy
+        {busy && enhanced === ''
           ? <div className="dsh-ph-enh-foot"><span>{T('enhance.workingHint')}</span></div>
           : failure !== null
             ? (
@@ -242,12 +269,16 @@ export function EnhanceAction(props: EnhanceActionProps): JSX.Element | null {
                     <pre>{enhanced}</pre>
                   </div>
                 </div>
-                <div className="dsh-ph-enh-foot">
-                  <span>{T('enhance.neverAutoApplied')}</span>
-                  <button type="button" className="dsh-ph-enh-act" onClick={copy}>{T('enhance.copy')}</button>
-                  <button type="button" className="dsh-ph-enh-act" onClick={() => { setOpen(false) }}>{T('enhance.cancel')}</button>
-                  <button type="button" className="dsh-ph-enh-act dsh-ph-enh-act--primary" onClick={apply}>{T('enhance.apply')}</button>
-                </div>
+                {busy
+                  ? <div className="dsh-ph-enh-foot"><span>{T('enhance.working')}</span></div>
+                  : (
+                    <div className="dsh-ph-enh-foot">
+                      <span>{T('enhance.neverAutoApplied')}</span>
+                      <button type="button" className="dsh-ph-enh-act" onClick={copy}>{T('enhance.copy')}</button>
+                      <button type="button" className="dsh-ph-enh-act" onClick={() => { setOpen(false) }}>{T('enhance.cancel')}</button>
+                      <button type="button" className="dsh-ph-enh-act dsh-ph-enh-act--primary" onClick={apply}>{T('enhance.apply')}</button>
+                    </div>
+                  )}
               </>
             )}
       </div>,

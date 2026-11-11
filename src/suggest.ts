@@ -148,6 +148,10 @@ const MAX_CONTINUATION = 160
 const MAX_ENHANCE_INPUT = 12_000
 /** Longest rewrite accepted back; anything bigger is prose, not a prompt. */
 const MAX_ENHANCE_OUTPUT = 6_000
+/** How long one rewrite may stream before the host gives up and reports failure. */
+const ENHANCE_TIMEOUT_MS = 45_000
+/** New characters between two progressive yields (keeps the panel smooth). */
+const ENHANCE_PAINT_CHARS = 24
 
 /**
  * A leading "Sure, here is..." preamble means the model explained instead of
@@ -193,10 +197,98 @@ function sanitizeContinuation(raw: string, draft: string): string {
   return suffix
 }
 
+/**
+ * Combine the carrier's cancellation signal with the local watchdog.
+ *
+ * `AbortSignal.any` only exists from Node 20.3 while `engines` allows 20.0, so
+ * the manual path is kept for older hosts.
+ * @param outer - the carrier signal, when the transport passes one.
+ * @param controller - the local watchdog controller.
+ * @returns a signal that aborts when either input does.
+ */
+function mergeSignal(outer: AbortSignal | undefined, controller: AbortController): AbortSignal {
+  if (outer === undefined) return controller.signal
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([outer, controller.signal])
+  const merged = new AbortController()
+  if (outer.aborted || controller.signal.aborted) {
+    merged.abort()
+    return merged.signal
+  }
+  const relay = (): void => { merged.abort() }
+  outer.addEventListener('abort', relay, { once: true })
+  controller.signal.addEventListener('abort', relay, { once: true })
+  return merged.signal
+}
+
 /** Prompt-suggestion Remote service: turns recent conversation into a next prompt. */
 export class PromptSuggestService extends TypertRemoteService {
   constructor(ctx: Context) {
     super(ctx, 'promptSuggest')
+  }
+
+  /**
+   * One enhancement call through the host LLM, as a stream of frames.
+   *
+   * Shared by both remote faces: {@link enhance} consumes the frames and keeps
+   * the last one, {@link enhanceStream} forwards them so the panel fills in
+   * while the model writes. The last frame is ALWAYS terminal — the sanitized
+   * rewrite on success, `''` when the call failed or timed out — so a broken
+   * stream surfaces as the panel's retry hint instead of leaving half a rewrite
+   * behind for Apply.
+   * @param request - the draft to rewrite and optional route override.
+   * @param signal - carrier cancellation for this logical stream.
+   * @returns each accumulated rewrite, then the terminal text.
+   */
+  private async *enhanceFrames(request: EnhanceRequest, signal?: AbortSignal): AsyncGenerator<EnhanceResult> {
+    const draft = typeof request?.draft === 'string' ? request.draft : ''
+    if (draft.trim() === '' || draft.length > MAX_ENHANCE_INPUT) return
+    const ctx = (this as unknown as { ctx: HostServices }).ctx
+    const llm = ctx.get?.('llm') as HostLlm | undefined
+    if (llm === undefined || typeof llm.stream !== 'function') return
+    const route = resolveRoute(ctx, request)
+    if (route === undefined) return
+    // Rewriting is generation, not deliberation: without this hint the adapter
+    // falls back to its default reasoning effort (high on DeepSeek), and the
+    // model spends the first seconds thinking before it emits any rewrite. Ask
+    // for the cheapest effort the route offers, exactly like the prediction
+    // path, so the rewrite starts streaming immediately.
+    const effort = await pickLowEffort(llm, route.provider, route.model)
+    const prompt = `Rewrite the following draft into a structured prompt.\n<draft>\n${draft.replace(/<\/draft>/gi, '<\\/draft>')}\n</draft>`
+    const controller = new AbortController()
+    // A stalled stream must surface as the panel's retry hint instead of an
+    // endless spinner; the abort lands in the catch below as a failure.
+    const watchdog = setTimeout(() => { controller.abort() }, ENHANCE_TIMEOUT_MS)
+    let out = ''
+    let painted = 0
+    let failed = false
+    try {
+      const stream = llm.stream({
+        provider: route.provider,
+        model: route.model,
+        system: ENHANCE_SYSTEM,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+        maxTokens: 2048,
+        temperature: 0.3,
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
+        signal: mergeSignal(signal, controller),
+      })
+      for await (const chunk of stream) {
+        if (chunk?.type !== 'text-delta' || typeof chunk.text !== 'string') continue
+        out += chunk.text
+        if (out.length > MAX_ENHANCE_OUTPUT * 2) break
+        if (out.length - painted < ENHANCE_PAINT_CHARS) continue
+        painted = out.length
+        yield { text: out.trimStart() }
+      }
+    } catch (error) {
+      failed = true
+      console.warn('[dsh-prompt-history] prompt-enhance stream failed:', error)
+    } finally {
+      clearTimeout(watchdog)
+    }
+    // Terminal frame, always. A broken stream yields '' so the browser reports
+    // a failure rather than offering a half-written rewrite for Apply.
+    yield { text: failed ? '' : sanitizeEnhanced(out) }
   }
 
   /**
@@ -210,43 +302,27 @@ export class PromptSuggestService extends TypertRemoteService {
    */
   @Remote('enhance')
   async enhance(request: EnhanceRequest): Promise<EnhanceResult> {
-    const draft = typeof request?.draft === 'string' ? request.draft : ''
-    if (draft.trim() === '' || draft.length > MAX_ENHANCE_INPUT) return { text: '' }
-    const ctx = (this as unknown as { ctx: HostServices }).ctx
-    const llm = ctx.get?.('llm') as HostLlm | undefined
-    if (llm === undefined || typeof llm.stream !== 'function') return { text: '' }
-    const route = resolveRoute(ctx, request)
-    if (route === undefined) return { text: '' }
-    const prompt = `Rewrite the following draft into a structured prompt.\n<draft>\n${draft.replace(/<\/draft>/gi, '<\\/draft>')}\n</draft>`
-    const controller = new AbortController()
-    try {
-      const stream = llm.stream({
-        provider: route.provider,
-        model: route.model,
-        system: ENHANCE_SYSTEM,
-        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-        maxTokens: 2048,
-        temperature: 0.3,
-        signal: controller.signal,
-      })
-      let out = ''
-      for await (const chunk of stream) {
-        if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') out += chunk.text
-        if (out.length > MAX_ENHANCE_OUTPUT * 2) break
-      }
-      return { text: sanitizeEnhanced(out) }
-    } catch (error) {
-      console.warn('[dsh-prompt-history] prompt-enhance call failed:', error)
-      return { text: '' }
-    }
+    let text = ''
+    for await (const frame of this.enhanceFrames(request)) text = frame.text
+    return { text }
   }
 
   /**
-   * Predict the user's next prompt — or the rest of the one they are typing.
-   * @param request - conversation context, optional in-progress draft, and an
-   *   optional model override.
-   * @returns the predicted single line ('' when unavailable).
+   * Stream a draft rewrite as the model writes it.
+   *
+   * Same contract as {@link enhance}, but every frame carries the text
+   * accumulated so far, so the compare panel fills in instead of holding a
+   * blank spinner until the whole answer arrives. The final frame is the
+   * sanitized rewrite (`''` when the call failed or was refused).
+   * @param request - the draft to rewrite and optional route override.
+   * @param signal - carrier cancellation for this logical stream.
+   * @returns accumulated text after each delta, then the terminal text.
    */
+  @Remote({ mode: 'stream' })
+  async *enhanceStream(request: EnhanceRequest, signal?: AbortSignal): AsyncGenerator<EnhanceResult> {
+    yield* this.enhanceFrames(request, signal)
+  }
+
   @Remote('suggest')
   async suggest(request: SuggestRequest): Promise<SuggestResult> {
     const ctx = (this as unknown as { ctx: HostServices }).ctx

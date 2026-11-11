@@ -153,7 +153,7 @@ export async function sideChatSuite(page, check, browser) {
 
   // 4) Regression: switching the feature off must remove the toolbar action.
   const { openApp, BASE_PREFS } = await import('./harness.mjs')
-  const offPrefs = { version: 3, data: { ...BASE_PREFS.data, sideChat: false } }
+  const offPrefs = { version: 4, data: { ...BASE_PREFS.data, sideChat: false } }
   const off = await openApp(browser, offPrefs)
   await openScratchSession(off.page)
   // A brand-new scratch session has no rows to select, and the toolbar only

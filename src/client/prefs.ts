@@ -79,7 +79,7 @@ export interface PluginPrefs {
 
 const STORAGE_KEY = 'dsh-prompt-history.prefs'
 /** Stored shape version; bump when the migration rules change. */
-const STORE_VERSION = 3
+const STORE_VERSION = 4
 const DEFAULTS: PluginPrefs = {
   copyMode: 'toolbar',
   rightClickPaste: true,
@@ -87,7 +87,7 @@ const DEFAULTS: PluginPrefs = {
   promptCompletion: true,
   aiCompletion: true,
   promptEnhance: true,
-  quoteComment: true,
+  quoteComment: false,
   quoteYield: true,
   contextSuggest: true,
   promptTemplates: true,
@@ -107,10 +107,13 @@ function bool(value: unknown, fallback: boolean): boolean {
 /**
  * Migrate any stored shape into the current prefs.
  *
- * v3 stores `{ version, data }` and made the side chat default-on: v2 payloads
- * (written while it shipped as off-by-default) adopt the new default instead of
- * keeping the value nobody chose deliberately — the feature had no UI surface at
- * the time, so a stored `false` there is a default, not a decision.
+ * v4 flipped the quote-comment default off: payloads written before it always
+ * stored `true` there (the old default), so they adopt the new default instead
+ * of keeping a value most users never chose deliberately; v4 payloads keep the
+ * stored value. v3 made the side chat default-on: v2 payloads (written while it
+ * shipped as off-by-default) adopt the new default instead of keeping the value
+ * nobody chose deliberately — the feature had no UI surface at the time, so a
+ * stored `false` there is a default, not a decision.
  * Older builds stored the flat object, and the oldest one used a `copyOnSelect`
  * boolean instead of `copyMode`. Every rule lives here so a new field never adds
  * another branch to the loader.
@@ -128,6 +131,11 @@ function migrate(parsed: unknown): PluginPrefs {
   // v1/v2 payloads predate the side chat's default flip, so a stored false there
   // is the old default rather than a choice the user made.
   const sideChatDefault = storedVersion >= 3 ? DEFAULTS.sideChat : true
+  // v1-v3 payloads predate the quote-comment default flip, so they start from the
+  // new default; only a v4 payload records a real user decision.
+  const quoteComment = storedVersion >= 4
+    ? bool(source.quoteComment, DEFAULTS.quoteComment)
+    : DEFAULTS.quoteComment
   const rawMode = source.copyMode
   const copyMode: CopyMode = rawMode === 'auto'
     ? 'auto'
@@ -143,7 +151,7 @@ function migrate(parsed: unknown): PluginPrefs {
     promptCompletion: bool(source.promptCompletion, DEFAULTS.promptCompletion),
     aiCompletion: bool(source.aiCompletion, DEFAULTS.aiCompletion),
     promptEnhance: bool(source.promptEnhance, DEFAULTS.promptEnhance),
-    quoteComment: bool(source.quoteComment, DEFAULTS.quoteComment),
+    quoteComment,
     quoteYield: bool(source.quoteYield, DEFAULTS.quoteYield),
     contextSuggest: bool(source.contextSuggest, DEFAULTS.contextSuggest),
     promptTemplates: bool(source.promptTemplates, DEFAULTS.promptTemplates),

@@ -48,18 +48,32 @@ export async function enhanceModelSuite(browser, check) {
       return
     }
     await page.click('.dsh-ph-enh-btn')
+    // The rewrite streams into the panel, so "finished" is the Apply button
+    // appearing — not the text reaching some length, which happens on the first
+    // frame and would race the click below against a half-written rewrite.
     let panel = null
+    let applyReady = false
+    let monotonic = true
+    let lastLength = 0
     const started = Date.now()
     while (Date.now() - started < TIMEOUT_MS) {
-      await sleep(1000)
+      await sleep(400)
       panel = await page.evaluate(() => {
         const p = document.querySelector('.dsh-ph-enh-panel')
         if (p === null) return null
         const pres = [...p.querySelectorAll('pre')].map((n) => (n.textContent ?? ''))
-        return { pres, buttons: [...p.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim()) }
+        return { pres, buttons: [...p.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim() ) }
       })
-      if (panel !== null && (panel.pres[1] ?? '').trim().length > 20) break
+      if (panel === null) continue
+      const length = (panel.pres[1] ?? '').length
+      // Frames carry the text accumulated so far: the panel must only ever grow.
+      if (length < lastLength) monotonic = false
+      lastLength = length
+      if (panel.buttons.some((label) => /^(应用|Apply)$/.test(label))) { applyReady = true; break }
     }
+    check('the rewrite streams into the panel and settles before Apply appears',
+      applyReady && monotonic && lastLength > 20,
+      { applyReady, monotonic, length: lastLength, buttons: panel?.buttons })
     const rewriteShown = panel !== null && norm(panel.pres[1]) !== ''
     const draftUntouched = norm(await composerText(page)) === norm(DRAFT)
     check('the enhance rewrite opens a compare panel and leaves the draft alone',

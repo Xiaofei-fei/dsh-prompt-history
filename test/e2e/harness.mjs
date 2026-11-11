@@ -65,9 +65,11 @@ const SEAM_KEY = 'dsh-prompt-history.testSeam'
  * `aiCompletion` is off for the same reason on the ghost path: the history
  * completion checks read the ghost immediately after typing, and a continuation
  * arriving mid-check would swap the suffix under them.
+ * `quoteComment` is pinned on so the quote suite keeps driving the comment-box
+ * path; the product default is off (STORE_VERSION 4).
  */
 export const BASE_PREFS = {
-  version: 3,
+  version: 4,
   data: {
     copyMode: 'toolbar',
     rightClickPaste: true,
@@ -75,6 +77,10 @@ export const BASE_PREFS = {
     promptCompletion: true,
     aiCompletion: false,
     contextSuggest: false,
+    quoteComment: true,
+    // No suite drives the template panel yet, so its button stays out of every
+    // other suite's action row; flip this to true when a templates suite lands.
+    promptTemplates: false,
     sideChat: true,
     writeGuard: true,
   },

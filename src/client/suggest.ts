@@ -16,6 +16,7 @@ interface RemoteFace {
   promptSuggest?: {
     suggest?: (request: SuggestRequest, signal?: AbortSignal) => Promise<unknown>
     enhance?: (request: EnhanceRequest) => Promise<unknown>
+    enhanceStream?: (request: EnhanceRequest) => AsyncIterable<unknown>
   }
 }
 
@@ -114,6 +115,24 @@ const CONTRIBUTION = {
       ],
       result: strictCodec('dsh-prompt-history#promptSuggest/enhance:result'),
     },
+    {
+      id: 'dsh-prompt-history#promptSuggest/enhanceStream',
+      service: 'promptSuggest',
+      namespace: 'promptSuggest',
+      method: 'enhanceStream',
+      mode: 'stream',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'request',
+          wire: 'request',
+          source: 'json',
+          codec: strictCodec('dsh-prompt-history#promptSuggest/enhanceStream:request'),
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: strictCodec('dsh-prompt-history#promptSuggest/enhanceStream:result'),
+    },
   ],
 } as const
 
@@ -143,6 +162,15 @@ export interface SuggestBridge {
    * @returns the rewritten prompt, or '' when the rewrite failed/unavailable.
    */
   enhance(draft: string): Promise<string>
+  /**
+   * Rewrite a draft, yielding the accumulated text as it arrives.
+   *
+   * Yields nothing when the host stream is unavailable, so the caller can fall
+   * back to {@link enhance}.
+   * @param draft - the composer draft.
+   * @returns each partial rewrite (raw), ending with the sanitized final text.
+   */
+  enhanceStream(draft: string): AsyncGenerator<string>
 }
 
 /**
@@ -181,6 +209,7 @@ export function createBridge(ctx: unknown): SuggestBridge | null {
     : undefined
   const call = api?.suggest
   const enhanceCall = api?.enhance
+  const streamCall = api?.enhanceStream
   if (typeof call !== 'function' || api === undefined) return null
   return {
     async enhance(draft: string): Promise<string> {
@@ -198,6 +227,25 @@ export function createBridge(ctx: unknown): SuggestBridge | null {
       } catch (error) {
         console.warn('[dsh-prompt-history] prompt-enhance unavailable:', error)
         return ''
+      }
+    },
+    async *enhanceStream(draft: string): AsyncGenerator<string> {
+      if (typeof streamCall !== 'function' || draft.trim() === '') return
+      try {
+        const iterable = streamCall.call(api, { draft }) as AsyncIterable<unknown>
+        for await (const raw of iterable) {
+          const value = raw !== undefined && raw !== null && typeof raw === 'object' && 'ok' in raw
+            ? ((raw as { readonly ok: boolean; readonly value?: unknown }).ok
+                ? (raw as { readonly value?: unknown }).value
+                : undefined)
+            : raw
+          const text = (value as EnhanceResult | undefined)?.text
+          if (typeof text === 'string') yield text
+        }
+      } catch (error) {
+        // A missing stream method (older host) or a refused carrier: yield
+        // nothing so the caller can fall back to the unary rewrite.
+        console.warn('[dsh-prompt-history] prompt-enhance stream unavailable:', error)
       }
     },
     async fetch(context: string, options: SuggestOptions = {}): Promise<string> {

@@ -24,7 +24,7 @@ const DRAFT = '请帮我检查一下这个插件的'
  * @param check - the runner's assertion collector.
  */
 export async function aiCompletionSuite(browser, check) {
-  const prefs = { version: 3, data: { ...BASE_PREFS.data, aiCompletion: true, contextSuggest: false } }
+  const prefs = { version: 4, data: { ...BASE_PREFS.data, aiCompletion: true, contextSuggest: false } }
   const { page, errors } = await openApp(browser, prefs)
   try {
     await openScratchSession(page)

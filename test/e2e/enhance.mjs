@@ -47,7 +47,7 @@ export async function enhanceSuite(browser, check) {
 
   // B) Switched off in Settings: nothing is rendered at all.
   {
-    const prefs = { version: 3, data: { ...BASE_PREFS.data, promptEnhance: false } }
+    const prefs = { version: 4, data: { ...BASE_PREFS.data, promptEnhance: false } }
     const { page, errors } = await openApp(browser, prefs)
     try {
       await openScratchSession(page)
