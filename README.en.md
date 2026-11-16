@@ -33,7 +33,7 @@
 
 `dsh-prompt-history` puts a terminal's input history into the DeepSeek Harness Web GUI composer:
 
-1. **Shell-style arrow recall** — with an empty draft, **Up** recalls the most recently sent message (newest first); **with a typed prefix, Up jumps to the most recent message starting with that prefix** (bash `history-search-backward`), keep pressing Up to walk further back through matches; **Down** walks forward (including forward through prefix matches) and, at the bottom edge, **restores the line you were typing before browsing began** (readline pending-line behavior).
+1. **Shell-style arrow recall** — with an empty draft, **Up** recalls the most recently sent message (newest first); **with a typed prefix, Up jumps to the most recent message starting with that prefix** (bash `history-search-backward`), keep pressing Up to walk further back through matches; **Down** walks forward (including forward through prefix matches) and, at the bottom edge, **restores the line you were typing before browsing began** (readline pending-line behavior). **In a multi-line draft, Up moves the caret first**: history starts only when the caret is already on the first line (a soft-wrapped line counts as a line above), and Down keeps native caret movement while not browsing.
 2. **Edit exits browsing** — editing the draft while browsing drops back to the live line.
 3. **Ctrl+R reverse search** — incremental search over history with live matching (bash-style `(reverse-i-search)`query`` overlay); Ctrl+R again steps to the older match; Enter accepts, Escape cancels and restores the previous draft.
 4. **Copy + quote (two modes, in Settings)** — any non-empty selection in the page — the composer textarea, chat messages, code blocks — is handled per the chosen mode:

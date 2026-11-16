@@ -109,6 +109,59 @@ export function editorSelectedText(host: HTMLTextAreaElement | HTMLElement): str
 }
 
 /**
+ * Whether the caret sits on the editor's first visual line.
+ *
+ * Terminal-style ↑ history must only take over when there is nothing above the
+ * caret; a multi-line or soft-wrapped draft keeps native caret movement. The
+ * check is geometric on purpose: the Lexical contenteditable renders one block
+ * per line (and <br> for soft breaks), so a draft-text offset cannot tell us
+ * which line the caret is on.
+ * @param host - the composer editor host (textarea or contenteditable).
+ * @returns true/false, or null when the geometry is unmeasurable.
+ */
+export function caretOnFirstLine(host: HTMLTextAreaElement | HTMLElement): boolean | null {
+  if (host instanceof HTMLTextAreaElement) {
+    if (document.activeElement !== host) return null
+    const start = host.selectionStart ?? 0
+    return !host.value.slice(0, start).includes('\n')
+  }
+  if (document.activeElement !== host && !host.contains(document.activeElement)) return null
+  const sel = document.getSelection()
+  if (sel === null || sel.rangeCount === 0) return null
+  if (!sel.isCollapsed) return false // a selection spans lines: keep native movement
+  const range = sel.getRangeAt(0)
+  if (range.startContainer !== host && !host.contains(range.startContainer)) return null
+  const caret = rectOf(range)
+  const first = firstContentTop(host)
+  if (caret === null || first === null) return null
+  // Half a line of tolerance absorbs sub-pixel rounding and caret boxes that
+  // report the line above at a wrap boundary.
+  return caret.top <= first + Math.max(2, caret.height / 2)
+}
+
+/** One collapsed range's caret box, or null when it has no measurable size. */
+function rectOf(range: Range): { top: number; height: number } | null {
+  const rects = range.getClientRects()
+  const rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect()
+  if (rect === undefined) return null
+  if (rect.width === 0 && rect.height === 0) return null
+  return { top: rect.top, height: rect.height }
+}
+
+/** Viewport top of the host's first non-whitespace character, or null. */
+function firstContentTop(host: HTMLElement): number | null {
+  const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT)
+  let node: Node | null = walker.nextNode()
+  while (node !== null && (node.textContent ?? '').trim() === '') node = walker.nextNode()
+  if (node === null || (node.textContent ?? '').length === 0) return null
+  const probe = document.createRange()
+  probe.setStart(node, 0)
+  probe.setEnd(node, 1)
+  const rect = probe.getBoundingClientRect()
+  return rect.width === 0 && rect.height === 0 ? null : rect.top
+}
+
+/**
  * Move the editor caret to a draft-text offset (used to park the caret after
  * an insertion). Exact on a textarea; best-effort collapse on the
  * contenteditable (falls back to leaving the caret wherever the editor put it).

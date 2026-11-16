@@ -112,7 +112,28 @@ export async function composerSuite(page, check) {
     searchOpen && (searchHit ?? '') !== '',
     { searchOpen, searchHit })
 
-  // 6) Regression: 引用 must read the selection the user made even while the
+  // 6) A multi-line draft keeps native caret movement: ↑ only browses from the
+  //    first line, so a two-line prompt stays editable (regression: every ↑ was
+  //    hijacked regardless of the caret's line).
+  await clearComposer(page)
+  await focusComposer(page)
+  await page.keyboard.type('多行草稿第一行')
+  await page.keyboard.down('Shift')
+  await page.keyboard.press('Enter')
+  await page.keyboard.up('Shift')
+  await page.keyboard.type('多行草稿第二行')
+  await sleep(500)
+  const caretBefore = await caretTop(page)
+  await page.keyboard.press('ArrowUp')
+  await sleep(400)
+  const caretAfter = await caretTop(page)
+  const multiDraft = (await composerText(page) ?? '')
+  check('↑ moves the caret inside a multi-line draft instead of recalling history',
+    caretBefore !== null && caretAfter !== null && caretAfter < caretBefore - 4
+      && multiDraft.includes('多行草稿第一行') && multiDraft.includes('多行草稿第二行'),
+    { caretBefore, caretAfter, draft: multiDraft.replace(/\s+/g, ' ').slice(0, 40) })
+
+  // 7) Regression: 引用 must read the selection the user made even while the
   //    composer still holds focus (it does right after sending a message).
   await clearComposer(page)
   await page.evaluate(() => {
@@ -171,4 +192,20 @@ export async function composerSuite(page, check) {
   await clearQuotes(page)
   await clearComposer(page)
 
+}
+
+/**
+ * Viewport top of the composer caret, or null when it cannot be measured.
+ * @param page - the app page.
+ * @returns the caret box's top in CSS pixels.
+ */
+function caretTop(page) {
+  return page.evaluate(() => {
+    const selection = document.getSelection()
+    if (selection === null || selection.rangeCount === 0) return null
+    const range = selection.getRangeAt(0)
+    const rects = range.getClientRects()
+    const rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect()
+    return rect === undefined || (rect.width === 0 && rect.height === 0) ? null : rect.top
+  })
 }

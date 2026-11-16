@@ -19,6 +19,7 @@ import { useCallback } from 'react'
 import type { BrowseState, SearchState } from './browse.ts'
 import { containsMatches, prefixMatches, RESET_BROWSE } from './browse.ts'
 import { hideSearchOverlay, hideSelectionToolbar, showSearchOverlay } from './feedback.ts'
+import { caretOnFirstLine, editorHost } from './editor.ts'
 import type { LiveComposer } from './useSuggestion.ts'
 
 /** What the composer hands the hook. */
@@ -151,6 +152,14 @@ export function useBrowse(input: BrowseInput): BrowseControls {
     const browse = browseRef.current
     // Native caret-down on the live line.
     if (event.key === 'ArrowDown' && browse.index === -1) return false
+    // ↑ only starts browsing from the editor's first line: while a line sits
+    // above the caret, the arrow keeps moving it (readline semantics), so a
+    // multi-line draft stays editable. Unmeasurable geometry keeps the old
+    // behavior (browse) rather than silently swallowing the key.
+    if (event.key === 'ArrowUp' && browse.index === -1) {
+      const host = editorHost()
+      if (host !== null && caretOnFirstLine(host) === false) return false
+    }
     event.preventDefault()
     event.stopPropagation()
     const setDraft = (text: string): void => { liveRef.current.inputActions.setDraft?.(text) }
