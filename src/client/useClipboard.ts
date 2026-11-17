@@ -32,6 +32,61 @@ export interface ClipboardInput {
 }
 
 /**
+ * Other plugins' text-selection toolbars.
+ *
+ * `.dshq-actions` is the historical third-party quote bar. The official host
+ * renders its registry-driven action surface as
+ * `[data-text-interaction-surface]`, whose `aria-hidden` flips to `"false"` while
+ * an interaction (e.g. message-quotes) is active; its action is a CSS-module
+ * button, so a class check cannot see it.
+ */
+const FOREIGN_BAR = '.dshq-actions'
+const FOREIGN_SURFACE_ACTION = '[data-text-interaction-surface]:not([aria-hidden="true"]) button'
+
+/**
+ * Whether another plugin is showing a quote/text toolbar for this selection.
+ * @returns true when a foreign toolbar is on screen.
+ */
+function foreignToolbarPresent(): boolean {
+  if (document.querySelector(FOREIGN_BAR) !== null) return true
+  const action = document.querySelector<HTMLElement>(FOREIGN_SURFACE_ACTION)
+  return action !== null && action.getClientRects().length > 0
+}
+
+let foreignWatch: MutationObserver | null = null
+
+/** Stop watching for a foreign toolbar (idempotent). */
+function stopForeignWatch(): void {
+  foreignWatch?.disconnect()
+  foreignWatch = null
+}
+
+/**
+ * Hide our toolbar if another plugin's toolbar appears after ours.
+ *
+ * The official surface usually activates on the same `selectionchange`, but its
+ * React commit and the plugin's own gesture dispatch can land a frame later; a
+ * one-shot check at show time was the race this guard removes. The observer
+ * lives only while our bar is on screen (it self-stops on the removal).
+ */
+function watchForeignToolbar(): void {
+  if (foreignWatch !== null) return
+  foreignWatch = new MutationObserver(() => {
+    if (!getPrefs().quoteYield || document.querySelector('.dsh-ph-toolbar') === null) {
+      stopForeignWatch()
+      return
+    }
+    if (foreignToolbarPresent()) { stopForeignWatch(); hideSelectionToolbar() }
+  })
+  foreignWatch.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['aria-hidden', 'class', 'style', 'hidden'],
+  })
+}
+
+/**
  * Install the composer's clipboard behaviour.
  * @param input - the composer's live ref.
  */
@@ -242,9 +297,10 @@ export function useClipboard(input: ClipboardInput): void {
           copySelection()
         } else {
           // Another quote plugin shows its own bar for the same selection
-          // (`dshq-actions`); two toolbars stacked on one selection is worse than
-          // either, so ours stands down when that pref is on.
-          if (getPrefs().quoteYield && document.querySelector('.dshq-actions') !== null) {
+          // (official text-interaction surface or a `.dshq-actions` bar); two
+          // toolbars stacked on one selection is worse than either, so ours
+          // stands down when that pref is on.
+          if (getPrefs().quoteYield && foreignToolbarPresent()) {
             hideSelectionToolbar()
             return
           }
@@ -261,6 +317,8 @@ export function useClipboard(input: ClipboardInput): void {
                 }
               : undefined
             showSelectionToolbar(rect, quoteSelection, askInSideChat)
+            // Coverage for an interaction that activates after this timer.
+            if (getPrefs().quoteYield) watchForeignToolbar()
           }
         }
       }, 150)

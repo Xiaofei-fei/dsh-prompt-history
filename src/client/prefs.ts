@@ -35,8 +35,10 @@ export interface PluginPrefs {
    */
   quoteComment: boolean
   /**
-   * When another quote plugin (one whose toolbar is `.dshq-actions`) shows its bar
-   * for the same selection, hide ours instead of stacking two toolbars.
+   * When another quote plugin shows its bar for the same selection, hide ours
+   * instead of stacking two toolbars. Recognizes the official
+   * `[data-text-interaction-surface]` action and the historical `.dshq-actions`
+   * bar.
    */
   quoteYield: boolean
   /**

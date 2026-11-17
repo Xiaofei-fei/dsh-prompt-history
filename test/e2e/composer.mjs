@@ -133,7 +133,53 @@ export async function composerSuite(page, check) {
       && multiDraft.includes('多行草稿第一行') && multiDraft.includes('多行草稿第二行'),
     { caretBefore, caretAfter, draft: multiDraft.replace(/\s+/g, ' ').slice(0, 40) })
 
-  // 7) Regression: 引用 must read the selection the user made even while the
+  // 7) Yield to another quote toolbar. The official host renders its action
+  //    surface as [data-text-interaction-surface] (aria-hidden flips while an
+  //    interaction is active); our bar must stand down when its button exists,
+  //    both when the surface is already active and when it activates later.
+  await clearComposer(page)
+  const SURFACE_ID = 'dsh-ph-e2e-surface'
+  const addSurface = (hidden) => page.evaluate(([id, ariaHidden]) => {
+    if (document.getElementById(id) !== null) return
+    const surface = document.createElement('div')
+    surface.id = id
+    surface.setAttribute('data-text-interaction-surface', '')
+    surface.setAttribute('aria-hidden', ariaHidden ? 'true' : 'false')
+    surface.style.cssText = 'position:fixed;left:40px;top:40px;z-index:5'
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = '引用文本'
+    surface.appendChild(button)
+    document.body.appendChild(surface)
+  }, [SURFACE_ID, hidden])
+  const setSurfaceHidden = (hidden) => page.evaluate(([id, ariaHidden]) => {
+    document.getElementById(id)?.setAttribute('aria-hidden', ariaHidden ? 'true' : 'false')
+  }, [SURFACE_ID, hidden])
+  const removeSurface = () => page.evaluate((id) => { document.getElementById(id)?.remove() }, SURFACE_ID)
+
+  // A) The foreign surface is already active when the selection settles.
+  await addSurface(false)
+  await selectUserRow(page)
+  await sleep(700)
+  const yieldedBefore = await page.evaluate(() => document.querySelector('.dsh-ph-toolbar') === null)
+  check('the selection toolbar yields to the official text-interaction surface',
+    yieldedBefore, { yieldedBefore })
+  await removeSurface()
+
+  // B) The foreign surface activates after our bar is already on screen.
+  await clearComposer(page)
+  await addSurface(true)
+  await selectUserRow(page)
+  await sleep(500)
+  const barUp = await page.evaluate(() => document.querySelector('.dsh-ph-toolbar') !== null)
+  await setSurfaceHidden(false)
+  await sleep(600)
+  const yieldedLate = await page.evaluate(() => document.querySelector('.dsh-ph-toolbar') === null)
+  check('the selection toolbar yields when the foreign surface activates later',
+    barUp && yieldedLate, { barUp, yieldedLate })
+  await removeSurface()
+
+  // 8) Regression: 引用 must read the selection the user made even while the
   //    composer still holds focus (it does right after sending a message).
   await clearComposer(page)
   await page.evaluate(() => {
@@ -192,6 +238,25 @@ export async function composerSuite(page, check) {
   await clearQuotes(page)
   await clearComposer(page)
 
+}
+
+/**
+ * Select the first user turn in the transcript and settle the selection event.
+ * @param page - the app page.
+ * @returns whether a user row existed.
+ */
+function selectUserRow(page) {
+  return page.evaluate(() => {
+    const row = document.querySelector('[data-chat-flow-kind="user"]')
+    if (row === null) return false
+    const range = document.createRange()
+    range.selectNodeContents(row)
+    const selection = document.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    return true
+  })
 }
 
 /**
