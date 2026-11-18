@@ -11,10 +11,11 @@
  * declines and the input trigger pipeline owns the keys.
  *
  * Right-click paste (terminal-style, like Linux): a right-click on the composer
- * textarea pastes the clipboard directly — no context menu. Paste runs the
- * SAME pipeline as Ctrl+V (execCommand('paste') fires the composer's own paste
- * handler, so images and reference chips behave identically), with a
- * navigator.clipboard fallback that splices text at the caret.
+ * textarea pastes the clipboard directly — no context menu. Chromium blocks a
+ * programmatic paste, so the clipboard is read (every type) and replayed as a
+ * paste event through the composer's own handler — image intake, files and
+ * reference chips behave like Ctrl+V — with a text-only splice fallback when
+ * clipboard-read is unavailable.
  *
  * Copy on select: any selection in the composer textarea (left-drag,
  * double-click, keyboard Shift+arrows, Ctrl+A) auto-copies once it stabilizes

@@ -238,6 +238,46 @@ export async function composerSuite(page, check) {
   await clearQuotes(page)
   await clearComposer(page)
 
+  // 9) Right-click paste carries images, not only text. Chromium blocks the
+  //    programmatic paste, so the plugin reads every clipboard type and
+  //    replays it as a paste event through the composer's own pipeline.
+  //    clipboard.read is mocked (the test seam) with one image; a real
+  //    right-click then exercises the whole path.
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const patched = await page.evaluate((b64) => {
+    if (typeof Clipboard === 'undefined' || typeof ClipboardItem === 'undefined') return false
+    const original = Object.getOwnPropertyDescriptor(Clipboard.prototype, 'read')
+    window.__phOriginalRead = original
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    const item = new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })
+    Object.defineProperty(Clipboard.prototype, 'read', { configurable: true, value: async () => [item] })
+    return true
+  }, PNG)
+  let pasted = null
+  if (patched) {
+    const point = await page.evaluate(() => {
+      const el = document.querySelector('[data-composer-input]')
+      if (el === null) return null
+      const r = el.getBoundingClientRect()
+      return { x: Math.round(r.left + 24), y: Math.round(r.top + 12) }
+    })
+    if (point !== null) await page.mouse.click(point.x, point.y, { button: 'right' })
+    await sleep(1500)
+    pasted = await page.evaluate(() => {
+      const draft = document.querySelector('[data-composer-input]')?.textContent ?? ''
+      const attach = document.querySelector('[data-slot="conversation.input.attachments"]')
+      const handled = draft.includes('.png')
+        || (attach?.textContent ?? '').trim() !== ''
+        || (attach?.querySelector('img') ?? null) !== null
+      if (window.__phOriginalRead !== undefined) Object.defineProperty(Clipboard.prototype, 'read', window.__phOriginalRead)
+      return { draft: draft.slice(0, 80), handled }
+    })
+  }
+  check('right-click paste hands images to the composer pipeline (not text-only)',
+    patched && pasted !== null && pasted.handled === true,
+    { patched, pasted })
+  await clearComposer(page)
+
 }
 
 /**

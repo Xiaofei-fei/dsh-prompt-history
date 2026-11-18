@@ -87,6 +87,55 @@ function watchForeignToolbar(): void {
 }
 
 /**
+ * Replay the whole clipboard into the composer through its own paste handler.
+ *
+ * `execCommand('paste')` is blocked on ordinary Chromium web content and
+ * `readText()` only carries `text/plain`, which is why right-click used to drop
+ * images and files. The async Clipboard API can read every type; rebuilding a
+ * DataTransfer and dispatching a paste event hands the content to the composer
+ * (image intake, file attachments, chip matching) exactly like Ctrl+V.
+ * @param host - the composer editor host.
+ * @returns whether a paste event was dispatched.
+ */
+async function pasteAllTypes(host: HTMLElement): Promise<boolean> {
+  if (typeof navigator.clipboard?.read !== 'function') return false
+  let items: ClipboardItem[]
+  try {
+    items = await navigator.clipboard.read()
+  } catch {
+    // Permission denied or clipboard-read unsupported: fall back to text.
+    return false
+  }
+  if (items.length === 0) return false
+  const data = new DataTransfer()
+  for (const item of items) {
+    for (const type of item.types) {
+      const blob = await item.getType(type).catch(() => null)
+      if (blob === null) continue
+      if (type.startsWith('text/') || type === 'text/uri-list') {
+        data.setData(type, await blob.text())
+      } else {
+        data.items.add(new File([blob], clipboardFileName(type), { type }))
+      }
+    }
+  }
+  if (data.types.length === 0) return false
+  host.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  return true
+}
+
+/**
+ * File name for a pasted blob, derived from its MIME type.
+ * @param type - the clipboard item's MIME type.
+ * @returns a safe `paste.<ext>` name.
+ */
+function clipboardFileName(type: string): string {
+  const slash = type.indexOf('/')
+  const extension = slash < 0 ? 'bin' : type.slice(slash + 1)
+  return `paste.${extension.replace(/[^a-z0-9.+-]/gi, '') || 'bin'}`
+}
+
+/**
  * Install the composer's clipboard behaviour.
  * @param input - the composer's live ref.
  */
@@ -97,25 +146,28 @@ export function useClipboard(input: ClipboardInput): void {
   // pastes the clipboard directly, like a Linux terminal.
   useEffect(() => {
     const pasteInto = (host: HTMLElement): void => {
-      // The composer's own paste handler (chip matching, image intake) fires on
-      // the native paste event execCommand dispatches — full Ctrl+V parity.
       focusEditor(host)
+      // Chromium refuses a programmatic paste on ordinary web content, so this
+      // is usually false; it stays first for hosts that do allow it.
       if (document.execCommand('paste')) return
-      // Fallback: read text and splice it at the selection ourselves.
-      void navigator.clipboard.readText().then(
-        (text) => {
-          if (text === '') return
-          const sel = editorSelectionOffsets(host)
-          const start = sel?.start ?? liveRef.current.draft.length
-          const end = sel?.end ?? start
-          const draft = liveRef.current.draft
-          const next = draft.slice(0, start) + text + draft.slice(end)
-          liveRef.current.inputActions.setDraft?.(next)
-          const caret = start + text.length
-          requestAnimationFrame(() => { setEditorCaret(host, caret) })
-        },
-        () => { /* clipboard read denied: nothing to paste */ },
-      )
+      void pasteClipboard(host)
+    }
+
+    const pasteClipboard = async (host: HTMLElement): Promise<void> => {
+      // Every clipboard type goes through the composer's own paste pipeline.
+      if (await pasteAllTypes(host)) return
+      // Fallback: only text is readable here (no clipboard-read, or it was
+      // denied), so splice it at the caret ourselves.
+      const text = await navigator.clipboard.readText().catch(() => '')
+      if (text === '') return
+      const sel = editorSelectionOffsets(host)
+      const start = sel?.start ?? liveRef.current.draft.length
+      const end = sel?.end ?? start
+      const draft = liveRef.current.draft
+      const next = draft.slice(0, start) + text + draft.slice(end)
+      liveRef.current.inputActions.setDraft?.(next)
+      const caret = start + text.length
+      requestAnimationFrame(() => { setEditorCaret(host, caret) })
     }
 
     const onContextMenu = (e: MouseEvent): void => {
